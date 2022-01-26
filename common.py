@@ -1,3 +1,5 @@
+import sys
+
 class Place:
   pass
 
@@ -52,4 +54,11 @@ class Instance:
       else:
         sys.stderr.write(f'Ignoring token <{data[i]}>.\n')
         i += 1
+
+  def writeRoutes(self, routes, fileStream=sys.stdout):
+    for key,routeSet in routes.items():
+      for route in routeSet:
+        assert key[0] == route[0] and key[1] == route[-1]
+        fileStream.write(f'{key[0]} {key[1]} {len(route)-2}' + ' '.join(map(str, route[1:-1])) + '\n')
+    fileStream.flush()
 
