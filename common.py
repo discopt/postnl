@@ -85,22 +85,4 @@ class Instance:
       self.routes[int(data[i]),int(data[i+1])] = route
       i += 3 + route.numberOfIntermediates
 
- 
-
-  """Per timeTick a list of action which has to be taken in this time
-    - production of a parcels
-    - shift of parcels
-    - transport 
-
-  For each timeTick and keep track of everything position of the parcels
-    create parcels
-      check floorcapacity
-    start shifts
-      check if everything arived
-    check depots (for neccesary transports)
-    check endtransport
-      check floorcapacity
-    check timecontraints
-  """
-
 
