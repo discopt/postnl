@@ -36,6 +36,8 @@ class Instance:
         place.isCross = data[i+6] == '1'
         place.inCapacity = int(data[i+7])
         place.outCapacity = int(data[i+8])
+        place.inAmount = 0
+        place.outAmount = 0
         self.places[int(data[i+1])] = place
         i += 9
       elif data[i] == 'd':
@@ -54,6 +56,7 @@ class Instance:
           self.start = trolley.release
         if trolley.deadline > self.end:
           self.end = trolley.deadline
+        trolley.position = -1   # keeps track of the position of the trolley
       else:
         sys.stderr.write(f'Ignoring token <{data[i]}>.\n')
         i += 1
@@ -82,22 +85,22 @@ class Instance:
       self.routes[int(data[i]),int(data[i+1])] = route
       i += 3 + route.numberOfIntermediates
 
+ 
 
-class Demandinstance:
+  """Per timeTick a list of action which has to be taken in this time
+    - production of a parcels
+    - shift of parcels
+    - transport 
 
-  def __init__(self, instance):
-    self.demand = dict()
-    self.places = instance.places
-    depots = [place for place in self.places if place.isTarget]
-    for p in depots:
-      for q in depots:
-        self.demand[(p, q)] = 0
+  For each timeTick and keep track of everything position of the parcels
+    create parcels
+      check floorcapacity
+    start shifts
+      check if everything arived
+    check depots (for neccesary transports)
+    check endtransport
+      check floorcapacity
+    check timecontraints
+  """
 
-    for trolley in instance.trolleys:
-      self.demand[(trolley.origin, trolley.destination)] += 1
 
-    for place in depots:
-      place.demand = {destination: self.demand[(place, destination)] for destination in depots}
-
-    def __repr__(self):
-      return str(self.demand)
