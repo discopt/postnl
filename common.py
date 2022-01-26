@@ -6,6 +6,9 @@ class Place:
 class Trolley:
   pass
 
+class Route:
+  pass
+
 class Instance:
 
   def __init__(self, fileName):
@@ -62,3 +65,19 @@ class Instance:
         fileStream.write(f'{key[0]} {key[1]} {len(route)-2}' + ' '.join(map(str, route[1:-1])) + '\n')
     fileStream.flush()
 
+  def readRoutes(self, fileName):
+    f = open(fileName, 'r')
+    data = f.read().split()
+    i = 0
+    self.routes = {}
+    while i < len(data):
+      route = Route()
+      route.origin = int(data[i])
+      route.destination = int(data[i+1])
+      route.numberOfIntermediates = int(data[i+2])
+      intermediatePlaces = ''
+      for j in range(route.numberOfIntermediates):
+        intermediatePlaces += data[i+3+j]
+      route.itermediatePlaces = intermediatePlaces
+      self.routes[int(data[i]),int(data[i+1])] = route
+      i += 3 + route.numberOfIntermediates
