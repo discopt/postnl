@@ -1,0 +1,3 @@
+<for all trolleys k:>
+<k> <#steps> <departure tick of step 1> <destination of step 1> <departure tick of step 2> <destination of step 2> ...
+
