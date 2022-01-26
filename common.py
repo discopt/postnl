@@ -62,3 +62,21 @@ class Instance:
         fileStream.write(f'{key[0]} {key[1]} {len(route)-2}' + ' '.join(map(str, route[1:-1])) + '\n')
     fileStream.flush()
 
+class Demandinstance:
+
+  def __init__(self, instance):
+    self.demand = dict()
+    self.places = instance.places
+    depots = [place for place in self.places if place.isTarget]
+    for p in depots:
+      for q in depots:
+        self.demand[(p, q)] = 0
+
+    for trolley in instance.trolleys:
+      self.demand[(trolley.origin, trolley.destination)] += 1
+
+    for place in depots:
+      place.demand = {destination: self.demand[(place, destination)] for destination in depots}
+
+    def __repr__(self):
+      return str(self.demand)
