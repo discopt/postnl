@@ -36,6 +36,8 @@ class Instance:
         place.isCross = data[i+6] == '1'
         place.inCapacity = int(data[i+7])
         place.outCapacity = int(data[i+8])
+        place.inAmount = 0
+        place.outAmount = 0
         self.places[int(data[i+1])] = place
         i += 9
       elif data[i] == 'd':
@@ -54,6 +56,7 @@ class Instance:
           self.start = trolley.release
         if trolley.deadline > self.end:
           self.end = trolley.deadline
+        trolley.position = -1   # keeps track of the position of the trolley
       else:
         sys.stderr.write(f'Ignoring token <{data[i]}>.\n')
         i += 1
