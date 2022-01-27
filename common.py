@@ -12,8 +12,8 @@ class Route:
 
 class Instance:
 
-  def __init__(self, fileName = ""):
-    if fileName != "":
+  def __init__(self, fileName=None):
+    if fileName != None:
       f = open(fileName, 'r')
       data = f.read().split()
       i = 0
@@ -90,34 +90,41 @@ class Instance:
 
 class Demandinstance:
 
-  def __init__(self, instance):
-    self.demand = dict()
-    self.places = instance.places
-    self.depots = [k for k in self.places if self.places[k].isTarget]
-    self.tickHours = instance.tickHours
-    self.timeShift = instance.timeShift
-    self.crossTicks = instance.crossTicks
+  def __init__(self, instance=None):
+    if not instance is None:
+      self.demand = dict()
+      self.places = instance.places
+      self.depots = [k for k in self.places if self.places[k].isTarget]
+      self.tickHours = instance.tickHours
+      self.timeShift = instance.timeShift
+      self.crossTicks = instance.crossTicks
 
-    for d in self.depots:
-      self.places[d].spawn_start = 9999999
-      self.places[d].spawn_end = -9999999
-      self.places[d].shifts = set()
-
-    for o in self.depots:
       for d in self.depots:
-        self.demand[(o, d)] = 0
+        self.places[d].spawn_start = 9999999
+        self.places[d].spawn_end = -9999999
+        self.places[d].shifts = set()
 
-    for trolley in instance.trolleys.values():
-      self.demand[(trolley.origin, trolley.destination)] += 1
-      if trolley.release < self.places[trolley.origin].spawn_start:
-        self.places[trolley.origin].spawn_start = trolley.release
-      if trolley.release > self.places[trolley.origin].spawn_end:
-        self.places[trolley.origin].spawn_end = trolley.release
-      self.places[trolley.destination].shifts.add(trolley.deadline)
+      for o in self.depots:
+        for d in self.depots:
+          self.demand[(o, d)] = 0
 
-    for k in self.depots:
-      place = self.places[k]
-      place.demand = {destination: self.demand[(k, destination)] for destination in self.depots}
+      for trolley in instance.trolleys.values():
+        self.demand[(trolley.origin, trolley.destination)] += 1
+        if trolley.release < self.places[trolley.origin].spawn_start:
+          self.places[trolley.origin].spawn_start = trolley.release
+        if trolley.release > self.places[trolley.origin].spawn_end:
+          self.places[trolley.origin].spawn_end = trolley.release
+        self.places[trolley.destination].shifts.add(trolley.deadline)
+
+      for k in self.depots:
+        place = self.places[k]
+        place.demand = {destination: self.demand[(k, destination)] for destination in self.depots}
+
+  def totaldemand(self):
+    return sum(self.demand.values())
+
+  def depottotaldemand(self, depot):
+    return sum(self.places[depot].demand.values())
 
   def __str__(self):
     # return str(self.demand)
@@ -129,11 +136,20 @@ class Demandinstance:
       s += f'{o:>2}:  [{self.places[o].spawn_start:>3},{self.places[o].spawn_end:>3}]'
       for d in self.depots:
         s += f'{self.demand[(o, d)]:>5}'
-      s += f'{sum(self.places[o].demand.values()):>6}\n'
-    s += f'Total demand: {sum(self.demand.values())}\n'
+      s += f'{self.depottotaldemand(o):>6}\n'
+    s += f'Total demand: {self.totaldemand()}\n'
     s += f'Total \'self\' demand: {sum([self.demand[(d, d)] for d in self.depots])}'
     return s
 
+def randompairdemand(demandmatrix, error=0.25):
+  randompaireddemand = {}
+  pair_sigma = {}
+
+  for o, d in demandmatrix:
+    pair_sigma[(o, d)] = demandmatrix[(o, d)] * error / 3
+    randompaireddemand[(o, d)] = round(random.normalvariate(demandmatrix[(o, d)], pair_sigma[(o, d)]))
+
+  return randompaireddemand
 
 def createRandomInstance(demandinstance):
   randinstance = Instance()
@@ -145,10 +161,12 @@ def createRandomInstance(demandinstance):
 
   temptrolleys = []
 
-  for o, d in demandinstance.demand:
+  randomdemand = randompairdemand(demandinstance.demand, 0.25)  # adds variation to the paired demand (default 25% error)
+
+  for o, d in randomdemand:
     origin = demandinstance.places[o]
     destination = demandinstance.places[d]
-    demand = demandinstance.demand[(o, d)]
+    demand = randomdemand[(o, d)]
     for _ in range(demand):
       t = Trolley()
       shifts = list(destination.shifts)

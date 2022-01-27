@@ -5,5 +5,5 @@ demandinstance = Demandinstance(instance)
 
 randinstance = createRandomInstance(demandinstance)
 
-for i in randinstance.trolleys:
-    print(f'{randinstance.trolleys[i].release} {randinstance.trolleys[i].deadline}')
+# for i in randinstance.trolleys:
+#     print(f'{randinstance.trolleys[i].release} {randinstance.trolleys[i].deadline}')
