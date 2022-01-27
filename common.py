@@ -93,6 +93,9 @@ class Demandinstance:
     self.demand = dict()
     self.places = instance.places
     self.depots = [k for k in self.places if self.places[k].isTarget]
+    self.tickHours = instance.tickHours
+    self.timeShift = instance.timeShift
+    self.crossTicks = instance.crossTicks
 
     for d in self.depots:
       self.places[d].spawn_start = 9999999
