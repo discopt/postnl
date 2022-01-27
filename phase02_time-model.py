@@ -105,13 +105,6 @@ def read_data(datafile):
 
     f.close()
 
-    # for i in demand.keys():
-    #     print(i)
-    #     for j in demand[i].keys():
-    #         print("\t%d" % j)
-    #         for t in demand[i][j].keys():
-    #             print("\t\t%d" % t)
-    #             print("\t\t\t", demand[i][j][t])
     return distances, hourlyDistances, demand, depots, crossdocks, ticksize
 
 def read_solution_stage_01(solufile):
@@ -310,13 +303,6 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     '''
     returns the network design model of phase 2
     '''
-    # for i in demand.keys():
-    #     print(i)
-    #     for j in demand[i].keys():
-    #         print("\t%d" % j)
-    #         for t in demand[i][j].keys():
-    #             print("\t\t%d" % t)
-    #             print("\t\t\t", demand[i][j][t])
 
     indepots = [(d,1) for d in depots]
     outdepots = [(d,0) for d in depots]
@@ -329,14 +315,6 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     shifts = [(j,tt) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys()]
     shifts = set(shifts)
     times = range(max(t for (s,t) in shifts) + 1)
-
-    # for i in demand.keys():
-    #     print(i)
-    #     for j in demand[i].keys():
-    #         print("\t%d" % j)
-    #         for t in demand[i][j].keys():
-    #             print("\t\t%d" % t)
-    #             print("\t\t\t", demand[i][j][t])
 
     # compute outflow of in-depots
     outflow = dict()
@@ -395,13 +373,6 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     create_capacity_constraints(mip, truck_vars, shift_vars, arcs, shifts, times, truck_capacity)
     print("create truck capacity constraints")
     create_depot_truck_capacity_constraints(mip, truck_vars, distances, arcs, locations, times, depot_truck_capacity, depots, loading_time, unloading_time)
-
-    # ALREADY COVERED BY LAST TWO FAMILIES OF CONSTRAINTS
-    # print("create out capacity constraints")
-    # create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
-    # print("create in capacity constraints")
-    # create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
-
     print("create inventory outdepot constraints")
     create_inventory_constraints_outdepot(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, inflow)
     print("create inventory indepot constraints")
@@ -432,13 +403,6 @@ def main():
     loading_periods = 5
 
     distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[1])
-    # for i in demand.keys():
-    #     print(i)
-    #     for j in demand[i].keys():
-    #         print("\t%d" % j)
-    #         for t in demand[i][j].keys():
-    #             print("\t\t%d" % t)
-    #             print("\t\t\t", demand[i][j][t])
 
     if len(sys.argv) > 2:
       allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
