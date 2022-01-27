@@ -1,7 +1,7 @@
 import sys
 from common1 import *
 import matplotlib.pyplot as plt
-#from mpl_toolkits.basemap import Basemap
+from mpl_toolkits.basemap import Basemap
 
 
 if len(sys.argv) <= 2:
@@ -26,8 +26,7 @@ for t,data in instance.places.items():
     if data.longitude > lon_max:
         lon_max = data.longitude
 
-import matplotlib.pyplot as plt
-
+"""
 for t,data in instance.routes2use.items(): 
     #print(f'route from {instance.places[data.origin].longitude}, {instance.places[data.origin].lattitude} to {instance.places[data.destination].longitude}, {instance.places[data.destination].lattitude}')
     lat = [instance.places[data.origin].lattitude, instance.places[data.destination].lattitude] 
@@ -37,23 +36,24 @@ for t,data in instance.routes2use.items():
 
 plt.show()
 
+"""
 
-
-"""    
+    
      
-m = Basemap(projection = 'merc', llcrnrlat=lat_min - 2,urcrnrlat=lat_max + 2, llcrnrlon=lon_min - 2, urcrnrlon=lon_max + 2, lat_ts=40, resolution='l')
+m = Basemap(projection = 'merc', llcrnrlat=lat_min - 2,urcrnrlat=lat_max + 2, llcrnrlon=lon_min - 2, urcrnrlon=lon_max + 2, lat_ts=40, resolution='h')
 
 for t,data in instance.routes2use.items(): 
     #print(f'route from {instance.places[data.origin].longitude}, {instance.places[data.origin].lattitude} to {instance.places[data.destination].longitude}, {instance.places[data.destination].lattitude}')
     lat = [instance.places[data.origin].lattitude, instance.places[data.destination].lattitude] 
     lon = [instance.places[data.origin].longitude, instance.places[data.destination].longitude] 
     x, y = m(lon, lat)
-    m.plot(x, y, marker=None, markersize=5, linewidth=1) 
+    m.plot(x, y, marker=None, markersize=5, linewidth=0.5) 
 
 m.drawcoastlines()
-m.fillcontinents(color='white')
+m.fillcontinents(color='grey')
 m.drawmapboundary(fill_color='white')
 m.drawcountries(color='black')
-plt.title("#wedgez")
+plt.title("Routes")
+plt.savefig('routes.png', dpi = 300)
 plt.show() 
-"""
+
