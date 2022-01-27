@@ -12,3 +12,6 @@ sys.stderr.write(f'Read instance with {len(instance.places)} places, {len(instan
 demandinstance = Demandinstance(instance)
 
 print(demandinstance)
+
+for depot in demandinstance.depots:
+    pass
