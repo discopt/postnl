@@ -322,7 +322,7 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     outdepots = [(d,0) for d in depots]
     locations = depots + crossdocks
     signed_locations = indepots + outdepots + [(d,-1) for d in crossdocks] # used to distinguish in- and out-depots for inventory
-    if allowed_arcs is None:
+    if not allowed_arcs is None:
         arcs = allowed_arcs
     else:
         arcs = [(i,j) for i in locations for j in locations if i != j]
