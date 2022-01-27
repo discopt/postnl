@@ -60,7 +60,7 @@ def read_data(datafile):
             origin = int(line.split()[1])
             dest = int(line.split()[2])
             dist = int(line.split()[3])
-            hourlyDist = float(line.split()[3])
+            hourlyDist = float(line.split()[4])
 
             if not origin in distances:
                 distances[origin] = {dest: dist}
