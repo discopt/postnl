@@ -93,6 +93,30 @@ def read_data(datafile):
 
     return distances, demand, depots, crossdocks
 
+def read_solution_stage_01(solufile):
+    '''
+    reads and returns solution from stage 1
+    '''
+
+    f = open(solufile, 'r')
+
+    allowed_arcs = []
+    allowed_transportation = []
+
+    for line in f:
+        if line.startswith("x "):
+            (u,v) = (int(line.split()[1]), int(line.split()[2]))
+            allowed_arcs.append((u,v))
+        elif line.startswith("y "):
+            (u,v,w) = (int(line.split()[1]), int(line.split()[2]), int(line.split()[3]))
+            allowed_transportation.append((u,v,w))
+
+    f.close()
+
+    allowed_transportation = set(allowed_transportation)
+
+    return allowed_arcs, allowed_transportation
+
 ##################################
 # METHODS FOR BUILDING THE MODEL
 ##################################
@@ -332,7 +356,7 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
 
 
 def main():
-
+    
     truck_capacity = 48
     in_capacity = 400
     out_capacity = 1200
@@ -343,6 +367,8 @@ def main():
     loading_periods = 5
 
     distances, demand, depots, crossdocks = read_data(sys.argv[1])
+    allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+
     create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
                in_capacity, out_capacity, loading_periods)
     
