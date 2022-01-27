@@ -157,18 +157,31 @@ def create_capacity_constraints(model, arc_vars, path_vars, arcs, paths, truck_c
     for a in arcs:
         model.addConstr( quicksum(path_vars[p] for p in paths if is_arc_in_path(a, p)) <= truck_capacity * arc_vars[a])
 
-def evaluate_solution(arc_vars, arcs):
+def evaluate_solution(arc_vars, arcs, path_vars, paths):
     '''
     evaluates the solution of the model and prints arcs present in designed network to screen
     '''
 
-    solution = []
+    arc_solution = []
     for a in arcs:
         if arc_vars[a].X > 0.5:
-            solution.append(a)
+            arc_solution.append(a)
 
-    print("optimized network has %d arcs (out of %d)" % (len(solution), len(arcs)))
-    print(solution)
+    # print("optimized network has %d arcs (out of %d)" % (len(arc_solution), len(arcs)))
+    for (i,j) in arc_solution:
+        print("x %d %d" % (i,j))
+    print()
+
+    path_solution = []
+    for p in paths:
+        if path_vars[p].X > 0.001:
+            path_solution.append(p)
+    arc_destinations = set()
+    for p in path_solution:
+        for i in range(len(p)-1):
+            arc_destinations.add((p[i],p[i+1],p[-1]))
+    for (i,j,k) in arc_destinations:
+        print("y %d %d %d" % (i,j,k))
 
 def create_mip(distances, demand, depots, crossdocks, truck_capacity):
     '''
@@ -180,6 +193,8 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity):
     paths = compute_paths(depots, crossdocks)
 
     mip = Model()
+    mip.setParam("OutputFlag", 0)
+    mip.setParam("MIPGap", 0.02)
 
     arc_vars = create_arc_variables(mip, distances, arcs)
     path_vars = create_path_variables(mip, paths)
@@ -189,7 +204,12 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity):
     
     mip.optimize()
 
-    evaluate_solution(arc_vars, arcs)
+    mip.setParam("MIPGap", 0.0001)
+    mip.setParam("TimeLimit", mip.Runtime + 60)
+
+    mip.optimize()
+
+    evaluate_solution(arc_vars, arcs, path_vars, paths)
 
 
 def main():
