@@ -97,6 +97,30 @@ def read_data(datafile):
 
     return distances, hourlyDistances, demand, depots, crossdocks
 
+def read_solution_stage_01(solufile):
+    '''
+    reads and returns solution from stage 1
+    '''
+
+    f = open(solufile, 'r')
+
+    allowed_arcs = []
+    allowed_transportation = []
+
+    for line in f:
+        if line.startswith("x "):
+            (u,v) = (int(line.split()[1]), int(line.split()[2]))
+            allowed_arcs.append((u,v))
+        elif line.startswith("y "):
+            (u,v,w) = (int(line.split()[1]), int(line.split()[2]), int(line.split()[3]))
+            allowed_transportation.append((u,v,w))
+
+    f.close()
+
+    allowed_transportation = set(allowed_transportation)
+
+    return allowed_arcs, allowed_transportation
+
 ##################################
 # METHODS FOR BUILDING THE MODEL
 ##################################
@@ -321,10 +345,13 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     create_capacity_constraints(mip, truck_vars, shift_vars, arcs, shifts, times, truck_capacity)
     print("create truck capacity constraints")
     create_depot_truck_capacity_constraints(mip, truck_vars, distances, arcs, locations, times, depot_truck_capacity, depots, loading_time, unloading_time)
-    print("create out capacity constraints")
-    create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
-    print("create in capacity constraints")
-    create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
+
+    # ALREADY COVERED BY LAST TWO FAMILIES OF CONSTRAINTS
+    # print("create out capacity constraints")
+    # create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
+    # print("create in capacity constraints")
+    # create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
+
     print("create inventory outdepot constraints")
     create_inventory_constraints_outdepot(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, inflow)
     print("create inventory indepot constraints")
@@ -344,7 +371,7 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
 
 
 def main():
-
+    
     truck_capacity = 48
     in_capacity = 400
     out_capacity = 1200
@@ -355,8 +382,8 @@ def main():
     loading_periods = 5
 
     distances, hourlyDistances, demand, depots, crossdocks = read_data(sys.argv[1])
-    create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
-               in_capacity, out_capacity, loading_periods)
+    allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+    create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods)
     
 if __name__ == "__main__":
     main()

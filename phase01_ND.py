@@ -46,6 +46,7 @@ def read_data(datafile):
     f = open(datafile, 'r')
 
     distances = dict()
+    orig_distances = dict()
     demand = dict()
     depots = []
     crossdocks = []
@@ -56,11 +57,14 @@ def read_data(datafile):
             origin = int(line.split()[1])
             dest = int(line.split()[2])
             dist = int(line.split()[3])
+            origdist = float(line.split()[4])
 
             if not origin in distances:
                 distances[origin] = {dest: dist}
+                orig_distances[origin] = {dest: origdist}
             else:
                 distances[origin][dest] = dist
+                orig_distances[origin][dest] = origdist
 
         elif line.startswith('t'):
             origin = int(line.split()[2])
@@ -84,7 +88,7 @@ def read_data(datafile):
 
     f.close()
 
-    return distances, demand, depots, crossdocks
+    return distances, demand, depots, crossdocks, orig_distances
 
 
 def compute_paths(depots, crossdocks):
@@ -157,20 +161,33 @@ def create_capacity_constraints(model, arc_vars, path_vars, arcs, paths, truck_c
     for a in arcs:
         model.addConstr( quicksum(path_vars[p] for p in paths if is_arc_in_path(a, p)) <= truck_capacity * arc_vars[a])
 
-def evaluate_solution(arc_vars, arcs):
+def evaluate_solution(arc_vars, arcs, path_vars, paths):
     '''
     evaluates the solution of the model and prints arcs present in designed network to screen
     '''
 
-    solution = []
+    arc_solution = []
     for a in arcs:
         if arc_vars[a].X > 0.5:
-            solution.append(a)
+            arc_solution.append(a)
 
-    print("optimized network has %d arcs (out of %d)" % (len(solution), len(arcs)))
-    print(solution)
+    # print("optimized network has %d arcs (out of %d)" % (len(arc_solution), len(arcs)))
+    for (i,j) in arc_solution:
+        print("x %d %d" % (i,j))
+    print()
 
-def create_mip(distances, demand, depots, crossdocks, truck_capacity):
+    path_solution = []
+    for p in paths:
+        if path_vars[p].X > 0.001:
+            path_solution.append(p)
+    arc_destinations = set()
+    for p in path_solution:
+        for i in range(len(p)-1):
+            arc_destinations.add((p[i],p[i+1],p[-1]))
+    for (i,j,k) in arc_destinations:
+        print("y %d %d %d" % (i,j,k))
+
+def create_mip(distances, demand, depots, crossdocks, truck_capacity, orig_distances):
     '''
     returns the network design model of phase 1
     '''
@@ -180,8 +197,10 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity):
     paths = compute_paths(depots, crossdocks)
 
     mip = Model()
+    mip.setParam("OutputFlag", 0)
+    mip.setParam("MIPGap", 0.02)
 
-    arc_vars = create_arc_variables(mip, distances, arcs)
+    arc_vars = create_arc_variables(mip, orig_distances, arcs)
     path_vars = create_path_variables(mip, paths)
 
     create_demand_constraints(mip, demand, depots, path_vars, paths)
@@ -189,15 +208,20 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity):
     
     mip.optimize()
 
-    evaluate_solution(arc_vars, arcs)
+    mip.setParam("MIPGap", 0.0001)
+    mip.setParam("TimeLimit", mip.Runtime + 60)
+
+    mip.optimize()
+
+    evaluate_solution(arc_vars, arcs, path_vars, paths)
 
 
 def main():
 
     truck_capacity = 48
 
-    distances, demand, depots, crossdocks = read_data(sys.argv[1])
-    create_mip(distances, demand, depots, crossdocks, truck_capacity)
+    distances, demand, depots, crossdocks,orig_distances = read_data(sys.argv[1])
+    create_mip(distances, demand, depots, crossdocks, truck_capacity, orig_distances)
     
 if __name__ == "__main__":
     main()
