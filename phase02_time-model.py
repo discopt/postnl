@@ -248,7 +248,7 @@ def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars,
 
 
 def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, shift_vars_integer, depot_truck_capacity,
-               in_capacity, out_capacity):
+               in_capacity, out_capacity, loading_periods):
     '''
     returns the network design model of phase 2
     '''
@@ -288,17 +288,9 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
             for t in demand[i][j].keys():
                 dem = demand[i][j][t]
 
-                # distribute demand dem equally in the time interval [0,90]
-                # @todo: replace magic number 90
-                frequency = dem/90
-                if frequency >= 1:
-                    frequency = floor(frequency)
-                    for cnt in range(0,frequency*dem,frequency):
-                        inflow[i][cnt][(j,t)] = 1
-                else:
-                    mult = math.ceil(1/frequency)
-                    for cnt in range(0,90):
-                        inflow[i][cnt][(j,t)] = mult
+                # distribute demand dem equally in the time loading periods
+                for cnt in range(loading_periods):
+                    inflow[i][cnt][(j,t)] = dem/loading_periods
         
 
     mip = Model()
@@ -343,10 +335,11 @@ def main():
     depot_truck_capacity = 12
     loading_time = 2            # (un-) loading time in ticks
     shift_vars_integer = False  # whether shift variables are integral
+    loading_periods = 10
 
     distances, demand, depots, crossdocks = read_data(sys.argv[1])
     create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, shift_vars_integer, depot_truck_capacity,
-               in_capacity, out_capacity)
+               in_capacity, out_capacity, loading_periods)
     
 if __name__ == "__main__":
     main()
