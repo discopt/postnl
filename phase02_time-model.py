@@ -141,7 +141,7 @@ def create_truck_variables(model, distances, hourlyDistances, arcs, times):
 
     return truck_vars
 
-def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is_integer):
+def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is_integer, allowed_transportation):
     '''
     returns dictionary of shift variables
     '''
@@ -152,7 +152,7 @@ def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is
     for (i,j) in arcs:
       for (s,st) in shifts:
         for t in times:
-          if s != j and not j in crossdocks:
+          if (s != j and not j in crossdocks) or not (i,j,s) in allowed_transportation:
             # if j is a depot but it is not the last trip.
             shift_vars[i,j,s,st,t] = 0
           elif s != j or t <= st - distances[i][j]:
@@ -288,7 +288,7 @@ def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars,
 
 
 
-def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods):
+def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation):
     '''
     returns the network design model of phase 2
     '''
@@ -297,7 +297,8 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     outdepots = [(d,0) for d in depots]
     locations = depots + crossdocks
     signed_locations = indepots + outdepots + [(d,-1) for d in crossdocks] # used to distinguish in- and out-depots for inventory
-    arcs = [(i,j) for i in locations for j in locations if i != j]
+    # arcs = [(i,j) for i in locations for j in locations if i != j]
+    arcs = allowed_arcs
     shifts = [(j,t) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys()]
     shifts = set(shifts)
     times = range(max(t for (s,t) in shifts) + 1)
@@ -338,7 +339,7 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     start = time.time()
 
     truck_vars = create_truck_variables(mip, distances, hourlyDistances, arcs, times)
-    shift_vars = create_shift_variables(mip, distances, shifts, crossdocks, arcs, times, shift_vars_integer)
+    shift_vars = create_shift_variables(mip, distances, shifts, crossdocks, arcs, times, shift_vars_integer, allowed_transportation)
     inventory_vars = create_inventory_variables(mip, shifts, signed_locations, times)
 
     print("create capacity constraints")
@@ -383,7 +384,7 @@ def main():
 
     distances, hourlyDistances, demand, depots, crossdocks = read_data(sys.argv[1])
     allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
-    create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods)
+    create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation)
     
 if __name__ == "__main__":
     main()
