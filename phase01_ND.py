@@ -46,6 +46,7 @@ def read_data(datafile):
     f = open(datafile, 'r')
 
     distances = dict()
+    orig_distances = dict()
     demand = dict()
     depots = []
     crossdocks = []
@@ -56,11 +57,14 @@ def read_data(datafile):
             origin = int(line.split()[1])
             dest = int(line.split()[2])
             dist = int(line.split()[3])
+            origdist = float(line.split()[4])
 
             if not origin in distances:
                 distances[origin] = {dest: dist}
+                orig_distances[origin] = {dest: origdist}
             else:
                 distances[origin][dest] = dist
+                orig_distances[origin][dest] = origdist
 
         elif line.startswith('t'):
             origin = int(line.split()[2])
@@ -84,7 +88,7 @@ def read_data(datafile):
 
     f.close()
 
-    return distances, demand, depots, crossdocks
+    return distances, demand, depots, crossdocks, orig_distances
 
 
 def compute_paths(depots, crossdocks):
@@ -183,7 +187,7 @@ def evaluate_solution(arc_vars, arcs, path_vars, paths):
     for (i,j,k) in arc_destinations:
         print("y %d %d %d" % (i,j,k))
 
-def create_mip(distances, demand, depots, crossdocks, truck_capacity):
+def create_mip(distances, demand, depots, crossdocks, truck_capacity, orig_distances):
     '''
     returns the network design model of phase 1
     '''
@@ -196,7 +200,7 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity):
     mip.setParam("OutputFlag", 0)
     mip.setParam("MIPGap", 0.02)
 
-    arc_vars = create_arc_variables(mip, distances, arcs)
+    arc_vars = create_arc_variables(mip, orig_distances, arcs)
     path_vars = create_path_variables(mip, paths)
 
     create_demand_constraints(mip, demand, depots, path_vars, paths)
@@ -216,8 +220,8 @@ def main():
 
     truck_capacity = 48
 
-    distances, demand, depots, crossdocks = read_data(sys.argv[1])
-    create_mip(distances, demand, depots, crossdocks, truck_capacity)
+    distances, demand, depots, crossdocks,orig_distances = read_data(sys.argv[1])
+    create_mip(distances, demand, depots, crossdocks, truck_capacity, orig_distances)
     
 if __name__ == "__main__":
     main()
