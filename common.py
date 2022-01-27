@@ -92,12 +92,21 @@ class Demandinstance:
     self.demand = dict()
     self.places = instance.places
     self.depots = [k for k in self.places if self.places[k].isTarget]
-    for p in self.depots:
-      for q in self.depots:
-        self.demand[(p, q)] = 0
+
+    for d in self.depots:
+      self.places[d].spawn_start = 9999999
+      self.places[d].spawn_end = -9999999
+
+    for o in self.depots:
+      for d in self.depots:
+        self.demand[(o, d)] = 0
 
     for trolley in instance.trolleys.values():
       self.demand[(trolley.origin, trolley.destination)] += 1
+      if trolley.release < self.places[trolley.origin].spawn_start:
+        self.places[trolley.origin].spawn_start = trolley.release
+      if trolley.release > self.places[trolley.origin].spawn_end:
+        self.places[trolley.origin].spawn_end = trolley.release
 
     for k in self.depots:
       place = self.places[k]
@@ -105,13 +114,15 @@ class Demandinstance:
 
   def __str__(self):
     # return str(self.demand)
-    s = '   '
+    s: str = '     ' + 'spawn_int'
     for o in self.depots:
       s += f'{o:>5}'
     s += '\n'
     for o in self.depots:
-      s += f'{o:>2}:'
+      s += f'{o:>2}:  [{self.places[o].spawn_start:>3},{self.places[o].spawn_end:>3}]'
       for d in self.depots:
         s += f'{self.demand[(o, d)]:>5}'
       s += '\n'
+    s += f'Total demand: {sum(self.demand.values())}\n'
+    s += f'Total \'self\' demand: {sum([self.demand[(d, d)] for d in self.depots])}'
     return s
