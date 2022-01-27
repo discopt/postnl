@@ -87,6 +87,26 @@ class Instance:
       self.routes[int(data[i]),int(data[i+1])] = route
       i += 3 + route.numberOfIntermediates
 
+  def writeinstance(self, filename):
+    f = open(filename, 'w')
+
+    f.write(f'T {self.tickHours} {self.timeShift} {self.crossTicks}\n\n')
+
+    for p in self.places:
+      place = self.places[p]
+      f.write(f'p {place.name} {place.lattitude} {place.longitude} {1 if place.isTarget else 0} '
+              f'{1 if place.isCross else 0} {place.inCapacity} {place.outCapacity}\n')
+    f.write('\n')
+
+    for i, j in self.dist:
+      f.write(f'd {i} {j} {self.dist[(i,j)]} {self.hourDistances[(i,j)]}\n')
+    f.write('\n')
+
+    for t in self.trolleys:
+      trolley = self.trolleys[t]
+      f.write(f't {t} {trolley.origin} {trolley.destination} {trolley.release} {trolley.deadline}\n')
+    f.write('\n')
+    f.close()
 
 class Demandinstance:
 
@@ -94,6 +114,8 @@ class Demandinstance:
     if not instance is None:
       self.demand = dict()
       self.places = instance.places
+      self.dist = instance.dist
+      self.hourDistances = instance.hourDistances
       self.depots = [k for k in self.places if self.places[k].isTarget]
       self.tickHours = instance.tickHours
       self.timeShift = instance.timeShift
@@ -154,6 +176,8 @@ def randompairdemand(demandmatrix, error=0.25):
 def createRandomInstance(demandinstance):
   randinstance = Instance()
   randinstance.places = demandinstance.places
+  randinstance.dist = demandinstance.dist
+  randinstance.hourDistances = demandinstance.hourDistances
   randinstance.tickHours = demandinstance.tickHours
   randinstance.timeShift = demandinstance.timeShift
   randinstance.crossTicks = demandinstance.crossTicks
