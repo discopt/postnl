@@ -152,7 +152,7 @@ def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is
     for (i,j) in arcs:
       for (s,st) in shifts:
         for t in times:
-          if (s != j and not j in crossdocks) or not (i,j,s) in allowed_transportation:
+          if (s != j and not j in crossdocks) or (allowed_transportation and not (i,j,s) in allowed_transportation):
             # if j is a depot but it is not the last trip.
             shift_vars[i,j,s,st,t] = 0
           elif s != j or t <= st - distances[i][j]:
@@ -297,8 +297,10 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     outdepots = [(d,0) for d in depots]
     locations = depots + crossdocks
     signed_locations = indepots + outdepots + [(d,-1) for d in crossdocks] # used to distinguish in- and out-depots for inventory
-    # arcs = [(i,j) for i in locations for j in locations if i != j]
-    arcs = allowed_arcs
+    if allowed_arcs is None:
+      arcs = allowed_arcs
+    else:
+      arcs = [(i,j) for i in locations for j in locations if i != j]
     shifts = [(j,t) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys()]
     shifts = set(shifts)
     times = range(max(t for (s,t) in shifts) + 1)
@@ -383,7 +385,10 @@ def main():
     loading_periods = 5
 
     distances, hourlyDistances, demand, depots, crossdocks = read_data(sys.argv[1])
-    allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+    if len(sys.argv) > 2:
+      allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+    else:
+      allowed_arcs, allowed_transportation = (None, None)
     create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation)
     
 if __name__ == "__main__":
