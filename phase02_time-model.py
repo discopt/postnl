@@ -333,10 +333,13 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
     create_capacity_constraints(mip, truck_vars, shift_vars, arcs, shifts, times, truck_capacity)
     print("create truck capacity constraints")
     create_depot_truck_capacity_constraints(mip, truck_vars, distances, arcs, locations, times, depot_truck_capacity, depots, loading_time, unloading_time)
-    print("create out capacity constraints")
-    create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
-    print("create in capacity constraints")
-    create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
+
+    # ALREADY COVERED BY LAST TWO FAMILIES OF CONSTRAINTS
+    # print("create out capacity constraints")
+    # create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
+    # print("create in capacity constraints")
+    # create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
+
     print("create inventory outdepot constraints")
     create_inventory_constraints_outdepot(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, inflow)
     print("create inventory indepot constraints")
