@@ -47,10 +47,12 @@ def read_data(datafile):
 
     f = open(datafile, 'r')
 
-    distances = dict()
+    distances = {}
+    hourlyDistances = {}
     demand = dict()
     depots = []
     crossdocks = []
+    ticksize = 0
 
     for line in f:
 
@@ -58,11 +60,14 @@ def read_data(datafile):
             origin = int(line.split()[1])
             dest = int(line.split()[2])
             dist = int(line.split()[3])
+            hourlyDist = float(line.split()[3])
 
             if not origin in distances:
                 distances[origin] = {dest: dist}
+                hourlyDistances[origin] = {dest: hourlyDist}
             else:
                 distances[origin][dest] = dist
+                hourlyDistances[origin][dest] = hourlyDist
 
         elif line.startswith('t'):
             origin = int(line.split()[2])
@@ -89,9 +94,12 @@ def read_data(datafile):
             else:
                 depots.append(idx)
 
+        elif line.startswith('T'):
+            ticksize = float(line.split()[1])
+
     f.close()
 
-    return distances, demand, depots, crossdocks
+    return distances, hourlyDistances, demand, depots, crossdocks, ticksize
 
 def read_solution_stage_01(solufile):
     '''
@@ -121,20 +129,23 @@ def read_solution_stage_01(solufile):
 # METHODS FOR BUILDING THE MODEL
 ##################################
 
-def create_truck_variables(model, distances, arcs, times):
+def create_truck_variables(model, distances, hourlyDistances, arcs, times):
     '''
     returns dictionary of truck variables
     '''
 
-    arc_vars = dict()
+    truck_vars = dict()
     
     for (i,j) in arcs:
         for t in times:
-            arc_vars[(i,j,t)] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=distances[i][j]) #TODO: hourly distances
+          if t + distances[i][j] <= max(times):
+            truck_vars[i,j,t] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=hourlyDistances[i][j])
+          else:
+            truck_vars[i,j,t] = 0
 
-    return arc_vars
+    return truck_vars
 
-def create_shift_variables(model, shifts, arcs, times, is_integer):
+def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is_integer, allowed_transportation):
     '''
     returns dictionary of shift variables
     '''
@@ -143,10 +154,16 @@ def create_shift_variables(model, shifts, arcs, times, is_integer):
     vtype = GRB.INTEGER if is_integer else GRB.CONTINUOUS
     
     for (i,j) in arcs:
-        for (s,st) in shifts:
-            for t in times:
-                shift_vars[(i,j,s,st,t)] = model.addVar(vtype=vtype, name="shift%d_%d_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
-
+      for (s,st) in shifts:
+        for t in times:
+          if (s != j and not j in crossdocks) or (allowed_transportation and not (i,j,s) in allowed_transportation):
+            # if j is a depot but it is not the last trip.
+            shift_vars[i,j,s,st,t] = 0
+          elif s != j or t <= st - distances[i][j]:
+            shift_vars[i,j,s,st,t] = model.addVar(vtype=vtype, name="shift%d_%d_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
+          else:
+            # too late arrival for last trip.
+            shift_vars[i,j,s,st,t] = 0
     return shift_vars
 
 def create_inventory_variables(model, shifts, signed_locations, times):
@@ -275,8 +292,7 @@ def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars,
 
 
 
-def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
-               in_capacity, out_capacity, loading_periods):
+def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation):
     '''
     returns the network design model of phase 2
     '''
@@ -285,7 +301,10 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
     outdepots = [(d,0) for d in depots]
     locations = depots + crossdocks
     signed_locations = indepots + outdepots + [(d,-1) for d in crossdocks] # used to distinguish in- and out-depots for inventory
-    arcs = [(i,j) for i in locations for j in locations if i != j]
+    if allowed_arcs is None:
+      arcs = allowed_arcs
+    else:
+      arcs = [(i,j) for i in locations for j in locations if i != j]
     shifts = [(j,t) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys()]
     shifts = set(shifts)
     times = range(max(t for (s,t) in shifts) + 1)
@@ -325,18 +344,21 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
 
     start = time.time()
 
-    truck_vars = create_truck_variables(mip, distances, arcs, times)
-    shift_vars = create_shift_variables(mip, shifts, arcs, times, shift_vars_integer)
+    truck_vars = create_truck_variables(mip, distances, hourlyDistances, arcs, times)
+    shift_vars = create_shift_variables(mip, distances, shifts, crossdocks, arcs, times, shift_vars_integer, allowed_transportation)
     inventory_vars = create_inventory_variables(mip, shifts, signed_locations, times)
 
     print("create capacity constraints")
     create_capacity_constraints(mip, truck_vars, shift_vars, arcs, shifts, times, truck_capacity)
     print("create truck capacity constraints")
     create_depot_truck_capacity_constraints(mip, truck_vars, distances, arcs, locations, times, depot_truck_capacity, depots, loading_time, unloading_time)
-    print("create out capacity constraints")
-    create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
-    print("create in capacity constraints")
-    create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
+
+    # ALREADY COVERED BY LAST TWO FAMILIES OF CONSTRAINTS
+    # print("create out capacity constraints")
+    # create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
+    # print("create in capacity constraints")
+    # create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
+
     print("create inventory outdepot constraints")
     create_inventory_constraints_outdepot(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, inflow)
     print("create inventory indepot constraints")
@@ -366,11 +388,17 @@ def main():
     shift_vars_integer = False  # whether shift variables are integral
     loading_periods = 5
 
-    distances, demand, depots, crossdocks = read_data(sys.argv[1])
-    allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+    distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[1])
+    if len(sys.argv) > 2:
+      allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+    else:
+      allowed_arcs, allowed_transportation = (None, None)
 
-    create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
-               in_capacity, out_capacity, loading_periods)
+    depot_truck_capacity = 12 * ticksize / 0.25
+    loading_time = 0 if ticksize > 0.25 else 1
+    loading_periods = math.ceil(10/ticksize)
+
+    create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation)
     
 if __name__ == "__main__":
     main()
