@@ -86,3 +86,32 @@ class Instance:
       i += 3 + route.numberOfIntermediates
 
 
+class Demandinstance:
+
+  def __init__(self, instance):
+    self.demand = dict()
+    self.places = instance.places
+    self.depots = [k for k in self.places if self.places[k].isTarget]
+    for p in self.depots:
+      for q in self.depots:
+        self.demand[(p, q)] = 0
+
+    for trolley in instance.trolleys.values():
+      self.demand[(trolley.origin, trolley.destination)] += 1
+
+    for k in self.depots:
+      place = self.places[k]
+      place.demand = {destination: self.demand[(k, destination)] for destination in self.depots}
+
+  def __str__(self):
+    # return str(self.demand)
+    s = '   '
+    for o in self.depots:
+      s += f'{o:>5}'
+    s += '\n'
+    for o in self.depots:
+      s += f'{o:>2}:'
+      for d in self.depots:
+        s += f'{self.demand[(o, d)]:>5}'
+      s += '\n'
+    return s
