@@ -47,7 +47,8 @@ def read_data(datafile):
 
     f = open(datafile, 'r')
 
-    distances = dict()
+    distances = {}
+    hourlyDistances = {}
     demand = dict()
     depots = []
     crossdocks = []
@@ -58,11 +59,14 @@ def read_data(datafile):
             origin = int(line.split()[1])
             dest = int(line.split()[2])
             dist = int(line.split()[3])
+            hourlyDist = float(line.split()[3])
 
             if not origin in distances:
                 distances[origin] = {dest: dist}
+                hourlyDistances[origin] = {dest: hourlyDist}
             else:
                 distances[origin][dest] = dist
+                hourlyDistances[origin][dest] = hourlyDist
 
         elif line.startswith('t'):
             origin = int(line.split()[2])
@@ -91,26 +95,29 @@ def read_data(datafile):
 
     f.close()
 
-    return distances, demand, depots, crossdocks
+    return distances, hourlyDistances, demand, depots, crossdocks
 
 ##################################
 # METHODS FOR BUILDING THE MODEL
 ##################################
 
-def create_truck_variables(model, distances, arcs, times):
+def create_truck_variables(model, distances, hourlyDistances, arcs, times):
     '''
     returns dictionary of truck variables
     '''
 
-    arc_vars = dict()
+    truck_vars = dict()
     
     for (i,j) in arcs:
         for t in times:
-            arc_vars[(i,j,t)] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=distances[i][j]) #TODO: hourly distances
+          if t + distances[i][j] <= max(times):
+            truck_vars[i,j,t] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=hourlyDistances[i][j])
+          else:
+            truck_vars[i,j,t] = 0
 
-    return arc_vars
+    return truck_vars
 
-def create_shift_variables(model, shifts, arcs, times, is_integer):
+def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is_integer):
     '''
     returns dictionary of shift variables
     '''
@@ -119,10 +126,16 @@ def create_shift_variables(model, shifts, arcs, times, is_integer):
     vtype = GRB.INTEGER if is_integer else GRB.CONTINUOUS
     
     for (i,j) in arcs:
-        for (s,st) in shifts:
-            for t in times:
-                shift_vars[(i,j,s,st,t)] = model.addVar(vtype=vtype, name="shift%d_%d_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
-
+      for (s,st) in shifts:
+        for t in times:
+          if s != j and not j in crossdocks:
+            # if j is a depot but it is not the last trip.
+            shift_vars[i,j,s,st,t] = 0
+          elif s != j or t <= st - distances[i][j]:
+            shift_vars[i,j,s,st,t] = model.addVar(vtype=vtype, name="shift%d_%d_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
+          else:
+            # too late arrival for last trip.
+            shift_vars[i,j,s,st,t] = 0
     return shift_vars
 
 def create_inventory_variables(model, shifts, signed_locations, times):
@@ -251,8 +264,7 @@ def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars,
 
 
 
-def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
-               in_capacity, out_capacity, loading_periods):
+def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods):
     '''
     returns the network design model of phase 2
     '''
@@ -301,8 +313,8 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
 
     start = time.time()
 
-    truck_vars = create_truck_variables(mip, distances, arcs, times)
-    shift_vars = create_shift_variables(mip, shifts, arcs, times, shift_vars_integer)
+    truck_vars = create_truck_variables(mip, distances, hourlyDistances, arcs, times)
+    shift_vars = create_shift_variables(mip, distances, shifts, crossdocks, arcs, times, shift_vars_integer)
     inventory_vars = create_inventory_variables(mip, shifts, signed_locations, times)
 
     print("create capacity constraints")
@@ -342,8 +354,8 @@ def main():
     shift_vars_integer = False  # whether shift variables are integral
     loading_periods = 5
 
-    distances, demand, depots, crossdocks = read_data(sys.argv[1])
-    create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
+    distances, hourlyDistances, demand, depots, crossdocks = read_data(sys.argv[1])
+    create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
                in_capacity, out_capacity, loading_periods)
     
 if __name__ == "__main__":
