@@ -69,7 +69,9 @@ def read_data(datafile):
             dest = int(line.split()[3])
             deadline = int(line.split()[5])
 
-            if not origin in demand:
+            if origin == dest:
+              pass
+            elif not origin in demand:
                 demand[origin] = {dest: {deadline: 1}}
             elif not dest in demand[origin]:
                 demand[origin][dest] = {deadline: 1}
@@ -104,7 +106,7 @@ def create_truck_variables(model, distances, arcs, times):
     
     for (i,j) in arcs:
         for t in times:
-            arc_vars[(i,j,t)] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=distances[i][j])
+            arc_vars[(i,j,t)] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=distances[i][j]) #TODO: hourly distances
 
     return arc_vars
 
@@ -130,7 +132,7 @@ def create_inventory_variables(model, shifts, signed_locations, times):
 
     inventory_vars = dict()
 
-    for (i,j) in signed_locations:
+    for (i,j) in signed_locations: # j=1 in-depot, j=0: out-depot, j=-1 cross
         for (s,st) in shifts:
             for t in times:
                 inventory_vars[(i,j,s,st,t)] = model.addVar(vtype=GRB.CONTINUOUS, name="inventory(%d_%d)_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
@@ -146,17 +148,17 @@ def create_capacity_constraints(model, truck_vars, shift_vars, arcs, shifts, tim
         for t in times:
             model.addConstr( quicksum(shift_vars[(i,j,s,st,t)] for (s,st) in shifts) <= truck_capacity * truck_vars[(i,j,t)])
 
-def create_depot_truck_capacity_constraints(model, truck_vars, arcs, locations, times, depot_truck_capacity, depots, loading_time):
+def create_depot_truck_capacity_constraints(model, truck_vars, distances, arcs, locations, times, depot_truck_capacity, depots, loading_time, unloading_time):
     '''
     creates and adds depot truck capacity constraints to model
     '''
 
     for i in depots:
         for t in times:
-            model.addConstr( quicksum(truck_vars[(i,j,t-eta)] for j in locations for eta in range(min(t+1,loading_time)) if (i,j) in arcs)
+            model.addConstr( quicksum(truck_vars[(i,j,t-eta)] for j in locations for eta in range(max(1,min(t+1,loading_time))) if (i,j) in arcs)
                              +
-                             quicksum(truck_vars[(j,i,t-eta)] for j in locations for eta in range(min(t+1,loading_time)) if (j,i) in arcs)
-                             <= depot_truck_capacity)
+                             quicksum(truck_vars[(j,i,t-eta-distances[j][i]-loading_time)] for j in locations for eta in range(min(0,max(1,min(t+1+distances[j][i]+loading_time,unloading_time)))) if (j,i) in arcs)
+                             <= depot_truck_capacity) # TODO: unloading_time=0 still implies that the truck blocks it for 1 tick! Is this desired?
 
 def create_out_capacity_constraints(model, inventory_vars, times, shifts, depots, out_capacity):
     '''
@@ -165,7 +167,7 @@ def create_out_capacity_constraints(model, inventory_vars, times, shifts, depots
 
     for i in depots:
         for t in times:
-            model.addConstr( quicksum(inventory_vars[(i,0,s,st,t)] for (s,st) in shifts) <= out_capacity)
+            model.addConstr( quicksum(inventory_vars[(i,0,s,st,t)] for (s,st) in shifts) <= out_capacity) # TODO: incorporate that leaving trucks still load something.
 
 def create_in_capacity_constraints(model, inventory_vars, times, shifts, depots, in_capacity):
     '''
@@ -174,9 +176,9 @@ def create_in_capacity_constraints(model, inventory_vars, times, shifts, depots,
 
     for i in depots:
         for t in times:
-            model.addConstr( quicksum(inventory_vars[(i,1,s,st,t)] for (s,st) in shifts) <= in_capacity)
+            model.addConstr( quicksum(inventory_vars[(i,1,s,st,t)] for (s,st) in shifts) <= in_capacity) # TODO: incorporate that incoming trucks still unload something.
 
-def create_inventory_constraints_outdepot(model, arcs, inventory_vars, shift_vars, loading_time, times, shifts, depots, locations, inflow):
+def create_inventory_constraints_outdepot(model, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, inflow):
     '''
     creates and adds inventory constraints for out depots
     '''
@@ -189,9 +191,11 @@ def create_inventory_constraints_outdepot(model, arcs, inventory_vars, shift_var
                                      -
                                      quicksum(shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs))
                 else:
-                    model.addConstr( inventory_vars[(i,0,s,st,t)] == inflow[i][t][(s,st)])
+                    model.addConstr( inventory_vars[(i,0,s,st,t)] == inflow[i][t][(s,st)]
+                                     -
+                                     quicksum(shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs))
 
-def create_inventory_constraints_indepot(model, arcs, inventory_vars, shift_vars, loading_time, times, shifts, depots, locations, outflow, distances):
+def create_inventory_constraints_indepot(model, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, outflow, distances):
     '''
     creates and adds inventory constraints for in depots
     '''
@@ -202,11 +206,11 @@ def create_inventory_constraints_indepot(model, arcs, inventory_vars, shift_vars
                 if t >= 1:
                     model.addConstr( inventory_vars[(i,1,s,st,t)] == inventory_vars[(i,1,s,st,t-1)] - outflow[i][t][(s,st)]
                                      +
-                                     quicksum(shift_vars[(j,i,s,st,t-2*loading_time-distances[j][i])] for j in locations if (j,i) in arcs and t-2*loading_time-distances[j][i] >= 0))
+                                     quicksum(shift_vars[(j,i,s,st,t-loading_time-unloading_time-distances[j][i])] for j in locations if (j,i) in arcs and t-loading_time-unloading_time-distances[j][i] >= 0))
                 else:
                     model.addConstr( inventory_vars[(i,1,s,st,t)] == 0 )
 
-def create_inventory_constraints_crossdock(model, arcs, inventory_vars, shift_vars, loading_time, times, shifts, crossdocks, locations, distances):
+def create_inventory_constraints_crossdock(model, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, crossdocks, locations, distances):
     '''
     creates and adds inventory constraints for crossdocks
     '''
@@ -217,11 +221,11 @@ def create_inventory_constraints_crossdock(model, arcs, inventory_vars, shift_va
                 if t >= 1:
                     model.addConstr( inventory_vars[(i,-1,s,st,t)] == inventory_vars[(i,-1,s,st,t-1)] - quicksum(shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs)
                                      +
-                                     quicksum(shift_vars[(j,i,s,st,t-2*loading_time-distances[j][i])] for j in locations if (j,i) in arcs and t-2*loading_time-distances[j][i] >= 0))
+                                     quicksum(shift_vars[(j,i,s,st,t-loading_time-unloading_time-distances[j][i])] for j in locations if (j,i) in arcs and t-loading_time-unloading_time-distances[j][i] >= 0))
                 else:
                     model.addConstr( inventory_vars[(i,-1,s,st,t)] == 0 )
 
-def create_capacity_constraints_outdepot(model, arcs, shift_vars, inventory_vars, depots, times, shifts, locations, loading_time, out_capacity):
+def create_capacity_constraints_outdepot(model, arcs, shift_vars, inventory_vars, depots, times, shifts, locations, loading_time, unloading_time, out_capacity):
     '''
     creates and adds capacity constraints for out depots
     '''
@@ -233,7 +237,7 @@ def create_capacity_constraints_outdepot(model, arcs, shift_vars, inventory_vars
                              quicksum(shift_vars[(i,j,s,st,t-eta)] for j in locations for (s,st) in shifts for eta in range(min(t+1, loading_time)) if (i,j) in arcs)
                              <= out_capacity)
 
-def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars, depots, times, shifts, distances, locations, loading_time, in_capacity):
+def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars, depots, times, shifts, distances, locations, loading_time, unloading_time, in_capacity):
     '''
     creates and adds capacity constraints for in depots
     '''
@@ -242,12 +246,12 @@ def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars,
         for t in times:
             model.addConstr( quicksum(inventory_vars[(i,1,s,st,t)] for (s,st) in shifts)
                              +
-                             quicksum(shift_vars[(j,i,s,st,t-distances[j][i]-loading_time-eta)] for j in locations for (s,st) in shifts for eta in range(min(t-distances[j][i]-loading_time+1, loading_time)) if (j,i) in arcs)
+                             quicksum(shift_vars[(j,i,s,st,t-distances[j][i]-loading_time-eta)] for j in locations for (s,st) in shifts for eta in range(min(0,max(1,min(t-distances[j][i]-loading_time+1, unloading_time)))) if (j,i) in arcs)
                              <= in_capacity)
 
 
 
-def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, shift_vars_integer, depot_truck_capacity,
+def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
                in_capacity, out_capacity, loading_periods):
     '''
     returns the network design model of phase 2
@@ -304,21 +308,21 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
     print("create capacity constraints")
     create_capacity_constraints(mip, truck_vars, shift_vars, arcs, shifts, times, truck_capacity)
     print("create truck capacity constraints")
-    create_depot_truck_capacity_constraints(mip, truck_vars, arcs, locations, times, depot_truck_capacity, depots, loading_time)
+    create_depot_truck_capacity_constraints(mip, truck_vars, distances, arcs, locations, times, depot_truck_capacity, depots, loading_time, unloading_time)
     print("create out capacity constraints")
     create_out_capacity_constraints(mip, inventory_vars, times, shifts, depots, out_capacity)
     print("create in capacity constraints")
     create_in_capacity_constraints(mip, inventory_vars, times, shifts, depots, in_capacity)
     print("create inventory outdepot constraints")
-    create_inventory_constraints_outdepot(mip, arcs, inventory_vars, shift_vars, loading_time, times, shifts, depots, locations, inflow)
+    create_inventory_constraints_outdepot(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, inflow)
     print("create inventory indepot constraints")
-    create_inventory_constraints_indepot(mip, arcs, inventory_vars, shift_vars, loading_time, times, shifts, depots, locations, outflow, distances)
+    create_inventory_constraints_indepot(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, depots, locations, outflow, distances)
     print("create inventory crossdocks constraints")
-    create_inventory_constraints_crossdock(mip, arcs, inventory_vars, shift_vars, loading_time, times, shifts, crossdocks, locations, distances)
+    create_inventory_constraints_crossdock(mip, arcs, inventory_vars, shift_vars, loading_time, unloading_time, times, shifts, crossdocks, locations, distances)
     print("create capacity out constraints")
-    create_capacity_constraints_outdepot(mip, arcs, shift_vars, inventory_vars, depots, times, shifts, locations, loading_time, out_capacity)
+    create_capacity_constraints_outdepot(mip, arcs, shift_vars, inventory_vars, depots, times, shifts, locations, loading_time, unloading_time, out_capacity)
     print("create capacity in constraints")
-    create_capacity_constraints_indepot(mip, arcs, shift_vars, inventory_vars, depots, times, shifts, distances, locations, loading_time, in_capacity)
+    create_capacity_constraints_indepot(mip, arcs, shift_vars, inventory_vars, depots, times, shifts, distances, locations, loading_time, unloading_time, in_capacity)
 
     end = time.time()
     print("time for building the model:", end - start)
@@ -326,19 +330,20 @@ def create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_ti
     mip.optimize()
 
 
-    
+
 def main():
 
     truck_capacity = 48
     in_capacity = 400
     out_capacity = 1200
-    depot_truck_capacity = 12
-    loading_time = 2            # (un-) loading time in ticks
+    depot_truck_capacity = 1000 # TODO: should scale with time discretization!
+    loading_time = 0            # loading time in ticks
+    unloading_time = 1 # unloading time in ticks
     shift_vars_integer = False  # whether shift variables are integral
-    loading_periods = 10
+    loading_periods = 5
 
     distances, demand, depots, crossdocks = read_data(sys.argv[1])
-    create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, shift_vars_integer, depot_truck_capacity,
+    create_mip(distances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity,
                in_capacity, out_capacity, loading_periods)
     
 if __name__ == "__main__":
