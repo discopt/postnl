@@ -72,18 +72,24 @@ def read_data(datafile):
         elif line.startswith('t'):
             origin = int(line.split()[2])
             dest = int(line.split()[3])
+            release = int(line.split()[4])
             deadline = int(line.split()[5])
+
+            if deadline == 0:
+                print(origin, dest, release, deadline)
 
             if origin == dest:
               pass
             elif not origin in demand:
-                demand[origin] = {dest: {deadline: 1}}
+                demand[origin] = {dest: {release: {deadline: 1}}}
             elif not dest in demand[origin]:
-                demand[origin][dest] = {deadline: 1}
-            elif not deadline in demand[origin][dest]:
-                demand[origin][dest][deadline] = 1
+                demand[origin][dest] = {release: {deadline: 1}}
+            elif not release in demand[origin][dest]:
+                demand[origin][dest][release] = {deadline: 1}
+            elif not deadline in demand[origin][dest][release]:
+                demand[origin][dest][release][deadline] = 1
             else:
-                demand[origin][dest][deadline] = demand[origin][dest][deadline] + 1                
+                demand[origin][dest][release][deadline] = demand[origin][dest][release][deadline] + 1
 
         elif line.startswith('p'):
             idx = int(line.split()[1])
@@ -99,6 +105,13 @@ def read_data(datafile):
 
     f.close()
 
+    # for i in demand.keys():
+    #     print(i)
+    #     for j in demand[i].keys():
+    #         print("\t%d" % j)
+    #         for t in demand[i][j].keys():
+    #             print("\t\t%d" % t)
+    #             print("\t\t\t", demand[i][j][t])
     return distances, hourlyDistances, demand, depots, crossdocks, ticksize
 
 def read_solution_stage_01(solufile):
@@ -164,6 +177,7 @@ def create_shift_variables(model, distances, shifts, crossdocks, arcs, times, is
           else:
             # too late arrival for last trip.
             shift_vars[i,j,s,st,t] = 0
+
     return shift_vars
 
 def create_inventory_variables(model, shifts, signed_locations, times):
@@ -296,18 +310,33 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     '''
     returns the network design model of phase 2
     '''
+    # for i in demand.keys():
+    #     print(i)
+    #     for j in demand[i].keys():
+    #         print("\t%d" % j)
+    #         for t in demand[i][j].keys():
+    #             print("\t\t%d" % t)
+    #             print("\t\t\t", demand[i][j][t])
 
     indepots = [(d,1) for d in depots]
     outdepots = [(d,0) for d in depots]
     locations = depots + crossdocks
     signed_locations = indepots + outdepots + [(d,-1) for d in crossdocks] # used to distinguish in- and out-depots for inventory
     if allowed_arcs is None:
-      arcs = allowed_arcs
+        arcs = allowed_arcs
     else:
-      arcs = [(i,j) for i in locations for j in locations if i != j]
-    shifts = [(j,t) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys()]
+        arcs = [(i,j) for i in locations for j in locations if i != j]
+    shifts = [(j,tt) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys()]
     shifts = set(shifts)
     times = range(max(t for (s,t) in shifts) + 1)
+
+    # for i in demand.keys():
+    #     print(i)
+    #     for j in demand[i].keys():
+    #         print("\t%d" % j)
+    #         for t in demand[i][j].keys():
+    #             print("\t\t%d" % t)
+    #             print("\t\t\t", demand[i][j][t])
 
     # compute outflow of in-depots
     outflow = dict()
@@ -320,7 +349,8 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     for i in demand.keys():
         for j in demand[i].keys():
             for t in demand[i][j].keys():
-                outflow[j][t][(j,t)] += demand[i][j][t]
+                for tt in demand[i][j][t]:
+                    outflow[j][tt][(j,tt)] += demand[i][j][t][tt]
 
     # compute inflow of out-depots
     inflow = dict()
@@ -330,15 +360,28 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
             inflow[i][t] = dict()
             for (s,st) in shifts:
                 inflow[i][t][(s,st)] = 0
-    for i in demand.keys():
-        for j in demand[i].keys():
-            for t in demand[i][j].keys():
-                dem = demand[i][j][t]
 
-                # distribute demand dem equally in the time loading periods
-                for cnt in range(loading_periods):
-                    inflow[i][cnt][(j,t)] = dem/loading_periods
-        
+    if False:
+        for i in demand.keys():
+            for j in demand[i].keys():
+                for t in demand[i][j].keys():
+                    dem = demand[i][j][t]
+
+                    # distribute demand dem equally in the time loading periods
+                    for cnt in range(loading_periods):
+                        inflow[i][cnt][(j,t)] = dem/loading_periods
+    else:
+        for i in demand.keys():
+            for j in demand[i].keys():
+                for t in demand[i][j].keys():
+                    for tt in demand[i][j][t].keys():
+                        inflow[i][t][(j,tt)] += demand[i][j][t][tt]
+
+
+    total_inflow = sum(inflow[i][t][(j,tt)] for i in depots for t in times for (j,tt) in shifts)
+    total_outflow = sum(outflow[j][tt][(j,tt)] for (j,tt) in shifts)
+    total_demand = sum(demand[i][j][t][tt] for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys())
+    print("sanity check:", total_inflow, total_outflow, total_demand)
 
     mip = Model()
 
@@ -389,6 +432,14 @@ def main():
     loading_periods = 5
 
     distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[1])
+    # for i in demand.keys():
+    #     print(i)
+    #     for j in demand[i].keys():
+    #         print("\t%d" % j)
+    #         for t in demand[i][j].keys():
+    #             print("\t\t%d" % t)
+    #             print("\t\t\t", demand[i][j][t])
+
     if len(sys.argv) > 2:
       allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
     else:
