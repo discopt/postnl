@@ -52,6 +52,7 @@ def read_data(datafile):
     demand = dict()
     depots = []
     crossdocks = []
+    ticksize = 0
 
     for line in f:
 
@@ -93,9 +94,12 @@ def read_data(datafile):
             else:
                 depots.append(idx)
 
+        elif line.startswith('T'):
+            ticksize = float(line.split()[1])
+
     f.close()
 
-    return distances, hourlyDistances, demand, depots, crossdocks
+    return distances, hourlyDistances, demand, depots, crossdocks, ticksize
 
 def read_solution_stage_01(solufile):
     '''
@@ -382,8 +386,13 @@ def main():
     shift_vars_integer = False  # whether shift variables are integral
     loading_periods = 5
 
-    distances, hourlyDistances, demand, depots, crossdocks = read_data(sys.argv[1])
+    distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[1])
     allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+
+    depot_truck_capacity = 12 * ticksize / 0.25
+    loading_time = 0 if ticksize > 0.25 else 1
+    loading_periods = math.ceil(10/ticksize)
+
     create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation)
     
 if __name__ == "__main__":
