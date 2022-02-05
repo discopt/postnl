@@ -7,6 +7,41 @@ import time
 # AUXILIARY METHODS
 ##################################
 
+def evaluate_solution(arcs, times, shifts, truck_vars, shift_vars):
+    '''
+    evaluates the solution of the model and prints arcs present in designed network to screen
+    '''
+
+    # maxtime = max(times)
+    truck_solution = []
+    for (i,j) in arcs:
+        for t in times:
+            if (not truck_vars[(i,j,t)] is 0) and truck_vars[(i,j,t)].X > 0.5:
+                truck_solution.append((i, j, t, truck_vars[i,j,t].X))
+
+    for (i, j, t, n) in truck_solution:
+        print("x %d %d %d %d" % (i,j,t,n))
+    print()
+
+    flow_solution = dict()
+    for (i,j) in arcs:
+        for (s,st) in shifts:
+            for t in times:
+                if (not shift_vars[(i,j,s,st,t)] is 0) and shift_vars[i,j,s,st,t].X > 0.001:
+                    if (i,j,s,st,t) in flow_solution:
+                        flow_solution[i,j,s,st,t] += shift_vars[i,j,s,st,t].X
+                    else:
+                        flow_solution[i,j,s,st,t] = shift_vars[i,j,s,st,t].X
+
+    print()
+    for (i,j,s,st,t) in flow_solution.keys():
+        print("y %d %d %d" % (i,j,s))
+
+    print()
+    for (i,j,s,st,t) in flow_solution.keys():
+        print("z %d %d %d %d %d %f" % (i,j,s,st,t,flow_solution[i,j,s,st,t]))
+
+
 def is_crossdock_capacity(capacity):
     '''
     returns whether `capacity` is the capacity of a cross dock
@@ -131,6 +166,23 @@ def read_solution_stage_01(solufile):
 
     return allowed_arcs, allowed_transportation
 
+def read_solution_stage_02(solufile):
+    '''
+    reads and returns solution from stage 2
+    '''
+
+    f = open(solufile, 'r')
+
+    allowed_arcs = []
+
+    for line in f:
+        if line.startswith("x "):
+            (u,v,t) = (int(line.split()[1]), int(line.split()[2]), int(line.split()[3]))
+            allowed_arcs.append((u,v,t))
+    f.close()
+
+    return (allowed_arcs, None)
+
 ##################################
 # METHODS FOR BUILDING THE MODEL
 ##################################
@@ -141,11 +193,17 @@ def create_truck_variables(model, distances, hourlyDistances, arcs, times):
     '''
 
     truck_vars = dict()
-    
-    for (i,j) in arcs:
+    cur_arcs = arcs
+    if len(arcs[0]) == 3:
+        cur_arcs = [(u,v) for (u,v,t) in arcs]
+        cur_arcs = set(cur_arcs)
+
+    for (i,j) in cur_arcs:
         for t in times:
           if t + distances[i][j] <= max(times):
             truck_vars[i,j,t] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=hourlyDistances[i][j])
+            if len(arcs[0]) == 3 and not (i,j,t) in arcs:
+                truck_vars[i,j,t] = 0
           else:
             truck_vars[i,j,t] = 0
 
@@ -300,6 +358,7 @@ def create_capacity_constraints_indepot(model, arcs, shift_vars, inventory_vars,
 
 
 def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation):
+
     '''
     returns the network design model of phase 2
     '''
@@ -310,6 +369,9 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
     signed_locations = indepots + outdepots + [(d,-1) for d in crossdocks] # used to distinguish in- and out-depots for inventory
     if not allowed_arcs is None:
         arcs = allowed_arcs
+        if len(allowed_arcs[0]) == 3:
+            arcs = [(u,v) for (u,v,t) in allowed_arcs]
+            arcs = set(arcs)
     else:
         arcs = [(i,j) for i in locations for j in locations if i != j]
     shifts = [(j,tt) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys()]
@@ -340,14 +402,24 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
                 inflow[i][t][(s,st)] = 0
 
     if False:
+        scale_demand = dict()
         for i in demand.keys():
             for j in demand[i].keys():
                 for t in demand[i][j].keys():
-                    dem = demand[i][j][t]
+                    for tt in demand[i][j][t].keys():
+                        scale_demand[i,j,tt] = scale_demand.get((i,j,tt), 0) + demand[i][j][t][tt]
 
-                    # distribute demand dem equally in the time loading periods
-                    for cnt in range(loading_periods):
-                        inflow[i][cnt][(j,t)] = dem/loading_periods
+        # distribute demand equally over loading periods
+        for (i,j,tt) in scale_demand:
+            avg = float(max(1,scale_demand[i,j,tt] - 1))/float(loading_periods)
+            freq = max(1,math.floor(1/avg))
+            for cnt in range(0,loading_periods,freq):
+                inflow[i][cnt][(j,tt)] = math.ceil(avg)
+            
+
+                        # # distribute demand dem equally in the time loading periods
+                        # for cnt in range(loading_periods):
+                        #     inflow[i][cnt][(j,tt)] = math.ceil(float(dem)/float(loading_periods))
     else:
         for i in demand.keys():
             for j in demand[i].keys():
@@ -365,7 +437,11 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
 
     start = time.time()
 
-    truck_vars = create_truck_variables(mip, distances, hourlyDistances, arcs, times)
+    if allowed_arcs is None:
+        truck_vars = create_truck_variables(mip, distances, hourlyDistances, arcs, times)
+    else:
+        truck_vars = create_truck_variables(mip, distances, hourlyDistances, allowed_arcs, times)
+    # truck_vars = create_truck_variables(mip, distances, hourlyDistances, arcs, times)
     shift_vars = create_shift_variables(mip, distances, shifts, crossdocks, arcs, times, shift_vars_integer, allowed_transportation)
     inventory_vars = create_inventory_variables(mip, shifts, signed_locations, times)
 
@@ -389,29 +465,31 @@ def create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_cap
 
     mip.optimize()
 
-
+    evaluate_solution(arcs, times, shifts, truck_vars, shift_vars)
 
 def main():
     
     truck_capacity = 48
+    # truck_capacity = 40
     in_capacity = 400
     out_capacity = 1200
     depot_truck_capacity = 1000 # TODO: should scale with time discretization!
     loading_time = 0            # loading time in ticks
     unloading_time = 1 # unloading time in ticks
     shift_vars_integer = False  # whether shift variables are integral
-    loading_periods = 5
+    loading_periods = 25
 
     distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[1])
 
     if len(sys.argv) > 2:
-      allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+      # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
+      allowed_arcs, allowed_transportation = read_solution_stage_02(sys.argv[2])
     else:
       allowed_arcs, allowed_transportation = (None, None)
 
     depot_truck_capacity = 12 * ticksize / 0.25
     loading_time = 0 if ticksize > 0.25 else 1
-    loading_periods = math.ceil(10/ticksize)
+    # loading_periods = math.ceil(10/ticksize)
 
     create_mip(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation)
     
