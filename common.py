@@ -173,7 +173,7 @@ def randompairdemand(demandmatrix, error=0.25):
 
   return randompaireddemand
 
-def createRandomInstance(demandinstance):
+def createRandomInstance(demandinstance, shorteninterval=0):
   randinstance = Instance()
   randinstance.places = demandinstance.places
   randinstance.dist = demandinstance.dist
@@ -197,7 +197,8 @@ def createRandomInstance(demandinstance):
       shiftnr = random.randint(0, len(shifts) - 1)
       t.origin = o
       t.destination = d
-      t.release = random.randint(origin.spawn_start, origin.spawn_end)
+      t.release = random.randint(round(origin.spawn_start + shorteninterval/2*(origin.spawn_end -origin.spawn_start)),
+                                 round(origin.spawn_end - shorteninterval/2*(origin.spawn_end -origin.spawn_start)))
       t.deadline = shifts[shiftnr]
       temptrolleys += [t]
 
