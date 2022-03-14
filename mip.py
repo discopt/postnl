@@ -241,7 +241,7 @@ class MIP:
 
 
 
-  def create_truck_variables(self, hourlyDistances, arcs, times):
+  def create_truck_variables(self, arcs, times):
     '''
     returns dictionary of truck variables
     '''
@@ -256,7 +256,7 @@ class MIP:
         for t in times:
           if t + self.network.distanceTicks(i,j) <= max(times):
             # truck_vars[i,j,t] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=0)
-            truck_vars[i,j,t] = self.model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=hourlyDistances[i][j])
+            truck_vars[i,j,t] = self.model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=self.network.distance(i,j))
             if len(arcs[0]) == 3 and not (i,j,t) in arcs:
                 truck_vars[i,j,t] = 0
             # if len(arcs[0]) == 3 and not (i,j,t) in arcs:
@@ -459,7 +459,7 @@ if __name__ == "__main__":
   shift_vars_integer = False  # whether shift variables are integral
   loading_periods = 25
 
-  unused1, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[5])
+  unused1, unused2, demand, depots, crossdocks, ticksize = read_data(sys.argv[5])
 
   if len(sys.argv) > 6:
     # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
@@ -552,9 +552,9 @@ if __name__ == "__main__":
   start = time.time()
 
   if allowed_arcs is None:
-      mip.create_truck_variables(hourlyDistances, arcs, times)
+      mip.create_truck_variables(arcs, times)
   else:
-      mip.create_truck_variables(hourlyDistances, allowed_arcs, times)
+      mip.create_truck_variables(allowed_arcs, times)
   mip.create_shift_variables(shifts, crossdocks, arcs, times, shift_vars_integer, allowed_transportation)
   mip.create_inventory_variables(shifts, signed_locations, times)
   mip.create_not_delivered_vars(shifts, indepots)
