@@ -2,6 +2,7 @@ from gurobipy import *
 import math
 import sys
 import time
+from network import *
 
 ##################################
 # AUXILIARY METHODS
@@ -193,6 +194,52 @@ def read_solution_stage_02(solufile):
 ##################################
 
 class MIP:
+
+  def __init__(self, network):
+    self._vtypeFlow = GRB.CONTINUOUS
+    self._vtypeInventory = GRB.CONTINUOUS
+
+    self._model = Model('PostNL')
+    self._network = network
+    self._minTick = 99999
+    self._maxTick = -99999
+    for k in network.commodities:
+      tick = network.deadlineTick(k)
+      if tick < self._minTick:
+        self._minTick = tick
+      if tick > self._maxTick:
+        self._maxTick = tick
+
+  def scanTrolleys(self, trolleys):
+    deliverableTrolleys = []
+    first = True
+    for t in trolleys:
+      tick = network.trolleyReleaseTick(t)
+      if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) > self.network.deadlineTick(t.commodity):
+        if first:
+          print(f'Example for a trolley that cannot be delivered for time reasons: {t.source}<{self.network.name(t.source)}> -> {t.commodity[0]}<{self.network.name(t.commodity[0])}> within [{t.release},{self.network.deadline(t.commodity)}], but distance is {self.network.distance(t.source, t.commodity[0])}')
+          print(f'Ticks are {self.network.trolleyReleaseTick(t)} + {self.network.travelTicks(t.source, t.commodity[0])} > {self.network.deadlineTick(t.commodity)}')
+          first = False
+        continue
+
+      deliverableTrolleys.append(t)
+      if tick < self._minTick:
+        self._minTick = tick
+      if tick > self._maxTick:
+        self._maxTick = tick
+
+    return deliverableTrolleys
+
+  @property
+  def network(self):
+    return self._network
+
+  @property
+  def ticks(self):
+    return range(self._minTick, self._maxTick+1)
+
+
+
 
   def create_truck_variables(self, distances, hourlyDistances, arcs, times):
     '''
@@ -512,6 +559,16 @@ class MIP:
 
 if __name__ == "__main__":
 
+  network = Network(sys.argv[1])
+  tickHours = float(sys.argv[2])
+  tickZero = float(sys.argv[3])
+  trolleys = network.readTrolleys(sys.argv[4])
+
+  network.setDiscretization(tickHours, tickZero)
+  
+  mip = MIP(network)
+
+
   truck_capacity = 48
   # truck_capacity = 40
   in_capacity = 800
@@ -522,11 +579,11 @@ if __name__ == "__main__":
   shift_vars_integer = False  # whether shift variables are integral
   loading_periods = 25
 
-  distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[1])
+  distances, hourlyDistances, demand, depots, crossdocks, ticksize = read_data(sys.argv[5])
 
-  if len(sys.argv) > 2:
+  if len(sys.argv) > 6:
     # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
-    allowed_arcs, allowed_transportation = read_solution_stage_02(sys.argv[2])
+    allowed_arcs, allowed_transportation = read_solution_stage_02(sys.argv[6])
   else:
     allowed_arcs, allowed_transportation = (None, None)
 
@@ -534,7 +591,6 @@ if __name__ == "__main__":
   loading_time = 0 if ticksize > 0.25 else 1
   # loading_periods = math.ceil(10/ticksize)
 
-  mip = MIP()
 
   mip.create(distances, hourlyDistances, demand, depots, crossdocks, truck_capacity, loading_time, unloading_time, shift_vars_integer, depot_truck_capacity, in_capacity, out_capacity, loading_periods, allowed_arcs, allowed_transportation)
     
