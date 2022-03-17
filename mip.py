@@ -226,22 +226,13 @@ class MIP:
     returns dictionary of shift variables
     '''
 
-    shift_vars = dict()
     vtype = GRB.INTEGER if is_integer else GRB.CONTINUOUS
-
-    for (i,j) in arcs:
+    self.shift_vars = {}
+    for (i,j) in self.network.connections:
       for (s,st) in shifts:
         for t in self.ticks:
-          if (s != j and not j in crossdocks) or (allowed_transportation and not (i,j,s) in allowed_transportation):
-            # if j is a depot but it is not the last trip.
-            shift_vars[i,j,s,st,t] = 0
-          elif s != j or t <= st - self.network.distanceTicks(i,j):
-            shift_vars[i,j,s,st,t] = self.model.addVar(vtype=vtype, name="shift%d_%d_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
-          else:
-            # too late arrival for last trip.
-            shift_vars[i,j,s,st,t] = 0
-
-    self.shift_vars = shift_vars
+          if (s == j and t + self.network.distanceTicks(i,j) <= st) or (s != j and self.network.isCross(j) and t + self.network.distanceTicks(i,j) + self.network.distanceTicks(j,s) <= st):
+            self.shift_vars[i,j,s,st,t] = self.model.addVar(vtype=vtype, name="shift%d_%d_%d_%d_%d" % (i,j,s,st,t), obj=0.0)
 
   def create_inventory_variables(self, shifts, signed_locations):
     '''
@@ -280,13 +271,11 @@ class MIP:
 
   def create_capacity_constraints(self, arcs, shifts):
     '''
-    creates and adds capacity constraints to model
+    Creates and adds capacity constraints.
     '''
-
     for (i,j) in arcs:
-        for t in self.ticks:
-            truck_var = self.truck_vars[i,j,t] if (i,j,t) in self.truck_vars else 0.0
-            self.model.addConstr( quicksum(self.shift_vars[(i,j,s,st,t)] for (s,st) in shifts) <= self.network.truckCapacity * truck_var)
+      for t in self.ticks:
+        self.model.addConstr( quicksum(self.shift_vars.get((i,j,s,st,t), 0.0) for (s,st) in shifts) <= self.network.truckCapacity * self.truck_vars.get((i,j,t), 0.0))
 
   def create_depot_truck_capacity_constraints(self, arcs, locations, depots):
     '''
@@ -329,11 +318,11 @@ class MIP:
                 if t > min(self.ticks):
                     self.model.addConstr( self.inventory_vars[(i,0,s,st,t)] == self.inventory_vars[(i,0,s,st,t-1)] + inflow[i][t][(s,st)]
                                      -
-                                     quicksum(self.shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs))
+                                     quicksum(self.shift_vars.get((i,j,s,st,t), 0.0) for j in locations if (i,j) in arcs))
                 else:
                     self.model.addConstr( self.inventory_vars[(i,0,s,st,t)] == inflow[i][t][(s,st)]
                                      -
-                                     quicksum(self.shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs))
+                                     quicksum(self.shift_vars.get((i,j,s,st,t), 0.0) for j in locations if (i,j) in arcs))
 
   def create_inventory_constraints_indepot(self, arcs, shifts, depots, locations, outflow):
     '''
@@ -347,12 +336,12 @@ class MIP:
                     # we might not deliver everything
                     self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] <= self.inventory_vars[(i,1,s,st,t-1)] - outflow[i][t][(s,st)] + self.not_delivered_vars[(i,s,st)]
                                      +
-                                     quicksum(self.shift_vars[(j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i))] for j in locations if (j,i) in arcs and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
+                                     quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in arcs and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 elif t > min(self.ticks):
                 # if t >= 1:
                     self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] == self.inventory_vars[(i,1,s,st,t-1)] - outflow[i][t][(s,st)]
                                      +
-                                     quicksum(self.shift_vars[(j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i))] for j in locations if (j,i) in arcs and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
+                                     quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in arcs and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 else:
                     self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] == 0 )
 
@@ -365,9 +354,9 @@ class MIP:
         for i in crossdocks:
             for (s,st) in shifts:
                 if t > min(self.ticks):
-                    self.model.addConstr( self.inventory_vars[(i,-1,s,st,t)] == self.inventory_vars[(i,-1,s,st,t-1)] - quicksum(self.shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs)
+                    self.model.addConstr( self.inventory_vars[(i,-1,s,st,t)] == self.inventory_vars[(i,-1,s,st,t-1)] - quicksum(self.shift_vars.get((i,j,s,st,t), 0.0) for j in locations if (i,j) in arcs)
                                      +
-                                     quicksum(self.shift_vars[(j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i))] for j in locations if (j,i) in arcs and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
+                                     quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in arcs and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 else:
                     self.model.addConstr( self.inventory_vars[(i,-1,s,st,t)] == 0 )
 
@@ -380,7 +369,7 @@ class MIP:
         for t in self.ticks:
             self.model.addConstr( quicksum(self.inventory_vars[(i,0,s,st,t)] for (s,st) in shifts)
                              +
-                             quicksum(self.shift_vars[(i,j,s,st,t-eta)] for j in locations for (s,st) in shifts for eta in range(min(t+1, self.network.loadingTicks)) if (i,j) in arcs and (t-eta in self.ticks))
+                             quicksum(self.shift_vars.get((i,j,s,st,t-eta), 0.0) for j in locations for (s,st) in shifts for eta in range(min(t+1, self.network.loadingTicks)) if (i,j) in arcs and (t-eta in self.ticks))
                              <= self.network.originCapacity(i) + self.not_increasedcap_vars[(i,t)])
 
   def create_capacity_constraints_indepot(self, arcs, depots, shifts, locations):
@@ -392,11 +381,11 @@ class MIP:
         for t in self.ticks:
             self.model.addConstr( quicksum(self.inventory_vars[(i,1,s,st,t)] for (s,st) in shifts)
                              +
-                             quicksum(self.shift_vars[(j,i,s,st,t-self.network.distanceTicks(j,i)-self.network.loadingTicks-eta)] for j in locations for (s,st) in shifts for eta in range(min(0,max(1,min(t-self.network.distanceTicks(j,i)-self.network.loadingTicks+1, self.network.unloadingTicks)))) if (j,i) in arcs)
+                             quicksum(self.shift_vars.get((j,i,s,st,t-self.network.distanceTicks(j,i)-self.network.loadingTicks-eta), 0.0) for j in locations for (s,st) in shifts for eta in range(min(0,max(1,min(t-self.network.distanceTicks(j,i)-self.network.loadingTicks+1, self.network.unloadingTicks)))) if (j,i) in arcs)
                              <= self.network.destinationCapacity(i))
 
 
-  def evaluate_solution(self, arcs, shifts, shift_vars, increasedcap_vars):
+  def evaluate_solution(self, arcs, shifts, increasedcap_vars):
     '''
     evaluates the solution of the model and prints arcs present in designed network to screen
     '''
@@ -415,11 +404,11 @@ class MIP:
     for (i,j) in arcs:
         for (s,st) in shifts:
             for t in self.ticks:
-                if (not shift_vars[(i,j,s,st,t)] is 0) and shift_vars[i,j,s,st,t].X > 0.001:
+                if (i,j,s,st,t) in self.shift_vars and self.shift_vars[i,j,s,st,t].X > 0.001:
                     if (i,j,s,st,t) in flow_solution:
-                        flow_solution[i,j,s,st,t] += shift_vars[i,j,s,st,t].X
+                        flow_solution[i,j,s,st,t] += self.shift_vars[i,j,s,st,t].X
                     else:
-                        flow_solution[i,j,s,st,t] = shift_vars[i,j,s,st,t].X
+                        flow_solution[i,j,s,st,t] = self.shift_vars[i,j,s,st,t].X
 
     print()
     for (i,j,s,st,t) in flow_solution.keys():
@@ -452,6 +441,8 @@ if __name__ == "__main__":
   loading_periods = 25
 
   unused1, unused2, demand, depots, crossdocks, unused6 = read_data(sys.argv[5])
+
+  print(crossdocks)
 
   if len(sys.argv) > 6:
     # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
@@ -570,5 +561,5 @@ if __name__ == "__main__":
 
   mip.model.optimize()
 
-  mip.evaluate_solution(arcs, shifts, mip.shift_vars, mip.not_increasedcap_vars)
+  mip.evaluate_solution(arcs, shifts, mip.not_increasedcap_vars)
 
