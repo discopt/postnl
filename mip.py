@@ -44,7 +44,7 @@ def evaluate_solution(arcs, times, shifts, truck_vars, shift_vars, increasedcap_
 
     print()
     for (i,t) in increasedcap_vars.keys():
-        if increasedcap_vars[i,t].X > 0:
+        if increasedcap_vars[i,t].X > 1.0e-5:
             print("i %d %d %f" % (i, t, increasedcap_vars[i,t].X))
 
 
@@ -344,23 +344,23 @@ class MIP:
                              quicksum(self.truck_vars[(j,i,t-eta-self.network.distanceTicks(j,i)-self.network.loadingTicks)] for j in locations for eta in range(min(0,max(1,min(t+1+self.network.distanceTicks(j,i)+self.network.loadingTicks,self.network.unloadingTicks)))) if (j,i) in arcs)
                              <= self.network.numDocksPerTick(i)) # TODO: unloading_time=0 still implies that the truck blocks it for 1 tick! Is this desired?
 
-  def create_out_capacity_constraints(self, times, shifts, depots, out_capacity):
+  def create_out_capacity_constraints(self, times, shifts, depots):
     '''
     creates and adds out capacity constraints for depots
     '''
 
     for i in depots:
         for t in times:
-            self.smodel.addConstr( quicksum(self.inventory_vars[(i,0,s,st,t)] for (s,st) in shifts) <= out_capacity) # TODO: incorporate that leaving trucks still load something.
+            self.smodel.addConstr( quicksum(self.inventory_vars[(i,0,s,st,t)] for (s,st) in shifts) <= self.network.originCapacity(i))
 
-  def create_in_capacity_constraints(self, times, shifts, depots, in_capacity):
+  def create_in_capacity_constraints(self, times, shifts, depots):
     '''
     creates and adds in capacity constraints for depots
     '''
 
     for i in depots:
         for t in times:
-            self.model.addConstr( quicksum(self.inventory_vars[(i,1,s,st,t)] for (s,st) in shifts) <= in_capacity) # TODO: incorporate that incoming trucks still unload something.
+            self.model.addConstr( quicksum(self.inventory_vars[(i,1,s,st,t)] for (s,st) in shifts) <= self.network.destinationCapacity(i))
 
   def create_inventory_constraints_outdepot(self, arcs, times, shifts, depots, locations, inflow):
     '''
@@ -415,7 +415,7 @@ class MIP:
                 else:
                     self.model.addConstr( self.inventory_vars[(i,-1,s,st,t)] == 0 )
 
-  def create_capacity_constraints_outdepot(self, arcs, depots, times, shifts, locations, out_capacity):
+  def create_capacity_constraints_outdepot(self, arcs, depots, times, shifts, locations):
     '''
     creates and adds capacity constraints for out depots
     '''
@@ -425,9 +425,9 @@ class MIP:
             self.model.addConstr( quicksum(self.inventory_vars[(i,0,s,st,t)] for (s,st) in shifts)
                              +
                              quicksum(self.shift_vars[(i,j,s,st,t-eta)] for j in locations for (s,st) in shifts for eta in range(min(t+1, self.network.loadingTicks)) if (i,j) in arcs)
-                             <= out_capacity + self.not_increasedcap_vars[(i,t)])
+                             <= self.network.originCapacity(i) + self.not_increasedcap_vars[(i,t)])
 
-  def create_capacity_constraints_indepot(self, arcs, depots, times, shifts, locations, in_capacity):
+  def create_capacity_constraints_indepot(self, arcs, depots, times, shifts, locations):
     '''
     creates and adds capacity constraints for in depots
     '''
@@ -437,7 +437,7 @@ class MIP:
             self.model.addConstr( quicksum(self.inventory_vars[(i,1,s,st,t)] for (s,st) in shifts)
                              +
                              quicksum(self.shift_vars[(j,i,s,st,t-self.network.distanceTicks(j,i)-self.network.loadingTicks-eta)] for j in locations for (s,st) in shifts for eta in range(min(0,max(1,min(t-self.network.distanceTicks(j,i)-self.network.loadingTicks+1, self.network.unloadingTicks)))) if (j,i) in arcs)
-                             <= in_capacity)
+                             <= self.network.destinationCapacity(i))
 
 
 if __name__ == "__main__":
@@ -451,20 +451,15 @@ if __name__ == "__main__":
   
   mip = MIP(network)
   
-  in_capacity = 800
-  out_capacity = 400
   loading_periods = 25
 
-  unused1, unused2, demand, depots, crossdocks, ticksize = read_data(sys.argv[5])
+  unused1, unused2, demand, depots, crossdocks, unused6 = read_data(sys.argv[5])
 
   if len(sys.argv) > 6:
     # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
     allowed_arcs, allowed_transportation = read_solution_stage_02(sys.argv[6])
   else:
     allowed_arcs, allowed_transportation = (None, None)
-
-  # loading_periods = math.ceil(10/ticksize)
-
 
   indepots = [(d,1) for d in depots]
   outdepots = [(d,0) for d in depots]
@@ -565,9 +560,9 @@ if __name__ == "__main__":
   print("create inventory crossdocks constraints")
   mip.create_inventory_constraints_crossdock(arcs, times, shifts, crossdocks, locations)
   print("create capacity out constraints")
-  mip.create_capacity_constraints_outdepot(arcs, depots, times, shifts, locations, out_capacity)
+  mip.create_capacity_constraints_outdepot(arcs, depots, times, shifts, locations)
   print("create capacity in constraints")
-  mip.create_capacity_constraints_indepot(arcs, depots, times, shifts, locations, in_capacity)
+  mip.create_capacity_constraints_indepot(arcs, depots, times, shifts, locations)
 
   end = time.time()
   print("time for building the model:", end - start)

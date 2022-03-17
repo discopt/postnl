@@ -3,12 +3,12 @@ import csv
 
 class LocationData:
 
-  def __init__(self, name, x, y, sourceCapacity, targetCapacity, crossCapacity, numDocks):
+  def __init__(self, name, x, y, originCapacity, destinationCapacity, crossCapacity, numDocks):
     self.name = name
     self.x = x
     self.y = y
-    self.sourceCapacity = sourceCapacity
-    self.targetCapacity = targetCapacity
+    self.originCapacity = originCapacity
+    self.destinationCapacity = destinationCapacity
     self.crossCapacity = crossCapacity
     self.numDocks = numDocks
     self.distances = {}
@@ -110,11 +110,11 @@ class Network:
   def y(self, location):
     return self._locationData[location].y
 
-  def sourceCapacity(self, location):
-    return self._locationData[location].sourceCapacity
+  def originCapacity(self, location):
+    return self._locationData[location].originCapacity
 
-  def targetCapacity(self, location):
-    return self._locationData[location].targetCapacity
+  def destinationCapacity(self, location):
+    return self._locationData[location].destinationCapacity
 
   def crossCapacity(self, location):
     return self._locationData[location].crossCapacity
@@ -156,7 +156,7 @@ class Network:
     f.write(f'o {self._loadingTime}\n')
     f.write('\n')
     for p in self.locations:
-      f.write(f'l {self.name(p)} {self.x(p):.4f} {self.y(p):.4f} {self.sourceCapacity(p)} {self.targetCapacity(p)} {self.crossCapacity(p)} {self.numDocks(p)}\n')
+      f.write(f'l {self.name(p)} {self.x(p):.4f} {self.y(p):.4f} {self.originCapacity(p)} {self.destinationCapacity(p)} {self.crossCapacity(p)} {self.numDocks(p)}\n')
     f.write('\n')
     for s in self.locations:
       for t in self.locations:
