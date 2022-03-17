@@ -215,25 +215,11 @@ class MIP:
     returns dictionary of truck variables
     '''
 
-    truck_vars = dict()
-    cur_arcs = arcs
-    if len(arcs[0]) == 3:
-        cur_arcs = [(u,v) for (u,v,t) in arcs]
-        cur_arcs = set(cur_arcs)
-
-    for (i,j) in cur_arcs:
+    self.truck_vars = {}
+    for (i,j) in self.network.connections:
         for t in self.ticks:
           if t + self.network.distanceTicks(i,j) in self.ticks:
-            # truck_vars[i,j,t] = model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=0)
-            truck_vars[i,j,t] = self.model.addVar(vtype=GRB.INTEGER, name="arc%d_%d_%d" % (i,j,t), obj=self.network.distance(i,j))
-            if len(arcs[0]) == 3 and not (i,j,t) in arcs:
-                truck_vars[i,j,t] = 0
-            # if len(arcs[0]) == 3 and not (i,j,t) in arcs:
-            #     truck_vars[i,j,t].obj = 1.0
-          else:
-            truck_vars[i,j,t] = 0
-
-    self.truck_vars = truck_vars
+            self.truck_vars[i,j,t] = self.model.addVar(vtype=GRB.INTEGER, name="arc_%d_%d_%d" % (i,j,t), obj=self.network.distance(i,j))
 
   def create_shift_variables(self, shifts, crossdocks, arcs, is_integer, allowed_transportation):
     '''
@@ -299,7 +285,8 @@ class MIP:
 
     for (i,j) in arcs:
         for t in self.ticks:
-            self.model.addConstr( quicksum(self.shift_vars[(i,j,s,st,t)] for (s,st) in shifts) <= self.network.truckCapacity * self.truck_vars[(i,j,t)])
+            truck_var = self.truck_vars[i,j,t] if (i,j,t) in self.truck_vars else 0.0
+            self.model.addConstr( quicksum(self.shift_vars[(i,j,s,st,t)] for (s,st) in shifts) <= self.network.truckCapacity * truck_var)
 
   def create_depot_truck_capacity_constraints(self, arcs, locations, depots):
     '''
@@ -308,9 +295,9 @@ class MIP:
 
     for i in depots:
         for t in self.ticks:
-            self.model.addConstr( quicksum(self.truck_vars[(i,j,t-eta)] for j in locations for eta in range(max(1,min(t+1,self.network.loadingTicks))) if (i,j) in arcs and (t-eta in self.ticks))
+            self.model.addConstr( quicksum(self.truck_vars[(i,j,t-eta)] for j in locations for eta in range(max(1,min(t+1,self.network.loadingTicks))) if (i,j) in arcs and (i,j,t-eta) in self.ticks)
                              +
-                             quicksum(self.truck_vars[(j,i,t-eta-self.network.distanceTicks(j,i)-self.network.loadingTicks)] for j in locations for eta in range(min(0,max(1,min(t+1+self.network.distanceTicks(j,i)+self.network.loadingTicks,self.network.unloadingTicks)))) if (j,i) in arcs and (t-eta-self.network.distanceTicks(j,i)-self.network.loadingTicks in self.ticks))
+                             quicksum(self.truck_vars[(j,i,t-eta-self.network.distanceTicks(j,i)-self.network.loadingTicks)] for j in locations for eta in range(min(0,max(1,min(t+1+self.network.distanceTicks(j,i)+self.network.loadingTicks,self.network.unloadingTicks)))) if (j,i) in arcs and (j,i,t-eta-self.network.distanceTicks(j,i)-self.network.loadingTicks) in self.truck_vars)
                              <= self.network.numDocksPerTick(i)) # TODO: unloading_time=0 still implies that the truck blocks it for 1 tick! Is this desired?
 
   def create_out_capacity_constraints(self, shifts, depots):
@@ -409,7 +396,7 @@ class MIP:
                              <= self.network.destinationCapacity(i))
 
 
-  def evaluate_solution(self, arcs, shifts, truck_vars, shift_vars, increasedcap_vars):
+  def evaluate_solution(self, arcs, shifts, shift_vars, increasedcap_vars):
     '''
     evaluates the solution of the model and prints arcs present in designed network to screen
     '''
@@ -417,8 +404,8 @@ class MIP:
     truck_solution = []
     for (i,j) in arcs:
         for t in self.ticks:
-            if (not truck_vars[(i,j,t)] is 0) and truck_vars[(i,j,t)].X > 0.5 and truck_vars[(i,j,t)].obj > 0:
-                truck_solution.append((i, j, t, truck_vars[i,j,t].X))
+            if (i,j,t) in self.truck_vars and self.truck_vars[(i,j,t)].x > 0.5 and self.truck_vars[(i,j,t)].obj > 0:
+                truck_solution.append((i, j, t, self.truck_vars[i,j,t].x))
 
     for (i, j, t, n) in truck_solution:
         print("x %d %d %d %d" % (i,j,t,n))
@@ -483,6 +470,10 @@ if __name__ == "__main__":
           arcs = set(arcs)
   else:
       arcs = [(i,j) for i in locations for j in locations if i != j]
+  
+  print(sorted(arcs) == [ (i,j) for i in network.locations for j in network.locations if i != j ])
+
+
   shifts = [(j,tt) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys()]
   shifts = set(shifts)
 
@@ -579,5 +570,5 @@ if __name__ == "__main__":
 
   mip.model.optimize()
 
-  mip.evaluate_solution(arcs, shifts, mip.truck_vars, mip.shift_vars, mip.not_increasedcap_vars)
+  mip.evaluate_solution(arcs, shifts, mip.shift_vars, mip.not_increasedcap_vars)
 
