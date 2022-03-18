@@ -240,10 +240,10 @@ class MIP:
     '''
 
     self.inventory_vars = {}
-    for (i,j) in signed_locations: # j=1 in-depot, j=0: out-depot, j=-1 cross
+    for i,j in signed_locations: # j=1 in-depot, j=0: out-depot, j=-1 cross
       for ci,ct in mergedCommodities:
         for t in self.ticks:
-          self.inventory_vars[(i,j,ci,ct,t)] = self.model.addVar(vtype=GRB.CONTINUOUS, name="inventory(%d_%d)_%d_%d_%d" % (i,j,ci,ct,t), obj=0.0)
+          self.inventory_vars[i,j,ci,ct,t] = self.model.addVar(vtype=GRB.CONTINUOUS, name="inventory(%d_%d)_%d_%d_%d" % (i,j,ci,ct,t), obj=0.0)
 
 #  def create_not_delivered_vars(self, mergedCommodities, indepots):
 #
@@ -286,22 +286,6 @@ class MIP:
           <= self.network.numDocksPerTick(i)
         ) # TODO: unloading_time=0 still implies that the truck blocks it for 1 tick! Is this desired?
 
-  def create_out_capacity_constraints(self, mergedCommodities, depots):
-    '''
-    Creates and adds out capacity constraints.
-    '''
-    for i in self.network.locations:
-      for t in self.ticks:
-        self.model.addConstr( quicksum(self.inventory_vars[(i,0,ci,ct,t)] for ci,ct in mergedCommodities) <= self.network.originCapacity(i))
-
-  def create_in_capacity_constraints(self, mergedCommodities, depots):
-    '''
-    Creates and adds in capacity constraints.
-    '''
-    for i in self.network.locations:
-      for t in self.ticks:
-        self.model.addConstr( quicksum(self.inventory_vars[(i,1,ci,ct,t)] for ci,ct in mergedCommodities) <= self.network.destinationCapacity(i))
-
   def create_inventory_constraints_outdepot(self, mergedCommodities, depots, locations, productions):
     '''
     Creates and adds inventory constraints for out depots
@@ -310,7 +294,7 @@ class MIP:
       for i in depots:
         for ci,ct in mergedCommodities:
           self.model.addConstr(
-             self.inventory_vars[(i,0,ci,ct,t)] == self.inventory_vars.get((i,0,ci,ct,t-1), 0.0) + productions.get((i,t,ci,ct), 0.0)
+             self.inventory_vars[i,0,ci,ct,t] == self.inventory_vars.get((i,0,ci,ct,t-1), 0.0) + productions.get((i,t,ci,ct), 0.0)
             - quicksum(self.shift_vars.get((i,j,ci,ct,t), 0.0) for j in self.network.locations if j != i)
           )
 
@@ -325,18 +309,18 @@ class MIP:
           if t >= ct:
             # we might not deliver everything
             self.model.addConstr(
-              self.inventory_vars[(i,1,ci,ct,t)]
-              <= self.inventory_vars[(i,1,ci,ct,t-1)] - demands.get((i,t,ci,ct), 0.0) #+ self.not_delivered_vars[(i,s,st)]
+              self.inventory_vars[i,1,ci,ct,t]
+              <= self.inventory_vars[i,1,ci,ct,t-1] - demands.get((i,t,ci,ct), 0.0) #+ self.not_delivered_vars[(i,s,st)]
               + quicksum(self.shift_vars.get((j,i,ci,ct,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks)
             )
           elif t > min(self.ticks):
             self.model.addConstr(
-              self.inventory_vars[(i,1,ci,ct,t)]
-              == self.inventory_vars[(i,1,ci,ct,t-1)] - demands.get((i,t,ci,ct), 0.0)
+              self.inventory_vars[i,1,ci,ct,t]
+              == self.inventory_vars[i,1,ci,ct,t-1] - demands.get((i,t,ci,ct), 0.0)
               + quicksum(self.shift_vars.get( (j,i,ci,ct,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks)
             )
           else:
-            self.model.addConstr( self.inventory_vars[(i,1,ci,ct,t)] == 0 )
+            self.model.addConstr( self.inventory_vars[i,1,ci,ct,t] == 0 )
 
   def create_inventory_constraints_crossdock(self, mergedCommodities, crossdocks, locations):
     '''
@@ -348,12 +332,12 @@ class MIP:
         for ci,ct in mergedCommodities:
           if t > min(self.ticks):
             self.model.addConstr(
-              self.inventory_vars[(i,-1,ci,ct,t)] == self.inventory_vars[(i,-1,ci,ct,t-1)] - quicksum(self.shift_vars.get((i,j,ci,ct,t), 0.0) for j in locations if (i,j) in self.network.connections)
+              self.inventory_vars[i,-1,ci,ct,t] == self.inventory_vars[i,-1,ci,ct,t-1] - quicksum(self.shift_vars.get((i,j,ci,ct,t), 0.0) for j in locations if (i,j) in self.network.connections)
               +
               quicksum(self.shift_vars.get((j,i,ci,ct,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks)
             )
           else:
-            self.model.addConstr( self.inventory_vars[(i,-1,ci,ct,t)] == 0 )
+            self.model.addConstr( self.inventory_vars[i,-1,ci,ct,t] == 0 )
 
   def create_capacity_constraints_outdepot(self, depots, mergedCommodities, locations):
     '''
@@ -363,7 +347,7 @@ class MIP:
     for i in depots:
       for t in self.ticks:
         self.model.addConstr(
-          quicksum(self.inventory_vars[(i,0,ci,ct,t)] for ci,ct in mergedCommodities)
+          quicksum(self.inventory_vars[i,0,ci,ct,t] for ci,ct in mergedCommodities)
           + quicksum(self.shift_vars.get((i,j,ci,ct,t-eta), 0.0) for j in locations for ci,ct in mergedCommodities for eta in range(min(t+1, self.network.loadingTicks)) if (i,j) in self.network.connections and (t-eta in self.ticks))
           <= self.network.originCapacity(i) + self.not_increasedcap_vars[(i,t)]
         )
@@ -376,7 +360,7 @@ class MIP:
     for i in depots:
       for t in self.ticks:
         self.model.addConstr(
-          quicksum(self.inventory_vars[(i,1,ci,ct,t)] for ci,ct in mergedCommodities)
+          quicksum(self.inventory_vars[i,1,ci,ct,t] for ci,ct in mergedCommodities)
           + quicksum(self.shift_vars.get((j,i,ci,ct,t-self.network.distanceTicks(j,i)-self.network.loadingTicks-eta), 0.0) for j in locations for ci,ct in mergedCommodities for eta in range(min(0,max(1,min(t-self.network.distanceTicks(j,i)-self.network.loadingTicks+1, self.network.unloadingTicks)))) if (j,i) in self.network.connections)
           <= self.network.destinationCapacity(i)
         )
@@ -405,7 +389,7 @@ class MIP:
 
     print()
     for (i,j,ci,ct,t) in flow_solution.keys():
-      print("y %d %d %d" % (i,j,s))
+      print("y %d %d %d" % (i,j,ci))
 
     print()
     for (i,j,ci,ct,t) in flow_solution.keys():
@@ -490,5 +474,6 @@ if __name__ == "__main__":
 
   mip.model.optimize()
 
-  mip.evaluate_solution(mergedCommodities, mip.not_increasedcap_vars)
+  if mip.model.status != GRB.INFEASIBLE:
+    mip.evaluate_solution(mergedCommodities)
 
