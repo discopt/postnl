@@ -308,17 +308,17 @@ class MIP:
       for t in self.ticks:
         self.model.addConstr( quicksum(self.inventory_vars[(i,1,s,st,t)] for (s,st) in shifts) <= self.network.destinationCapacity(i))
 
-  def create_inventory_constraints_outdepot(self, shifts, depots, locations, inflow):
+  def create_inventory_constraints_outdepot(self, shifts, depots, locations, productions):
     '''
     Creates and adds inventory constraints for out depots
     '''
     for t in self.ticks:
       for i in depots:
         for (s,st) in shifts:
-          self.model.addConstr( self.inventory_vars[(i,0,s,st,t)] == self.inventory_vars.get((i,0,s,st,t-1), 0.0) + inflow.get((i,t,s,st), 0.0)
+          self.model.addConstr( self.inventory_vars[(i,0,s,st,t)] == self.inventory_vars.get((i,0,s,st,t-1), 0.0) + productions.get((i,t,s,st), 0.0)
             - quicksum(self.shift_vars.get((i,j,s,st,t), 0.0) for j in self.network.locations if j != i))
 
-  def create_inventory_constraints_indepot(self, shifts, depots, locations, outflow):
+  def create_inventory_constraints_indepot(self, shifts, depots, locations, demands):
     '''
     creates and adds inventory constraints for in depots
     '''
@@ -328,12 +328,12 @@ class MIP:
             for (s,st) in shifts:
                 if t >= st:
                     # we might not deliver everything
-                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] <= self.inventory_vars[(i,1,s,st,t-1)] - outflow.get((i,t,s,st), 0.0) #+ self.not_delivered_vars[(i,s,st)]
+                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] <= self.inventory_vars[(i,1,s,st,t-1)] - demands.get((i,t,s,st), 0.0) #+ self.not_delivered_vars[(i,s,st)]
                                      +
                                      quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 elif t > min(self.ticks):
                 # if t >= 1:
-                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] == self.inventory_vars[(i,1,s,st,t-1)] - outflow.get((i,t,s,st), 0.0)
+                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] == self.inventory_vars[(i,1,s,st,t-1)] - demands.get((i,t,s,st), 0.0)
                                      +
                                      quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 else:
@@ -434,7 +434,7 @@ if __name__ == "__main__":
   
   loading_periods = 25
 
-  unused1, unused2, demand, depots, crossdocks, unused6 = read_data(sys.argv[5])
+  unused1, unused2, unused3, depots, crossdocks, unused6 = read_data(sys.argv[5])
 
   if len(sys.argv) > 6:
     # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
@@ -454,65 +454,10 @@ if __name__ == "__main__":
   else:
       arcs = [(i,j) for i in locations for j in locations if i != j]
   
-  print(sorted(arcs) == [ (i,j) for i in network.locations for j in network.locations if i != j ])
-
-
   shifts = [(j,tt) for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys()]
   shifts = set(shifts)
 
-  # compute outflow of in-depots
-  outflow = {}
-  for i in demand.keys():
-      for j in demand[i].keys():
-          for t in demand[i][j].keys():
-              for tt in demand[i][j][t]:
-                  outflow[j,tt,j,tt] = outflow.get((j,tt,j,tt), 0.0) + demand[i][j][t][tt]
-
-  # compute inflow of out-depots
-  inflow = {}
-
-  if False:
-      scale_demand = dict()
-      for i in demand.keys():
-          for j in demand[i].keys():
-              for t in demand[i][j].keys():
-                  for tt in demand[i][j][t].keys():
-                      scale_demand[i,j,tt] = scale_demand.get((i,j,tt), 0) + demand[i][j][t][tt]
-
-      # distribute demand equally over loading periods
-      for (i,j,tt) in scale_demand:
-          avg = float(max(1,scale_demand[i,j,tt] - 1))/float(loading_periods)
-          freq = max(1,math.floor(1/avg))
-          for cnt in range(0,loading_periods,freq):
-              inflow[i][cnt][(j,tt)] = math.ceil(avg)
-          
-
-                     # # distribute demand dem equally in the time loading periods
-                      # for cnt in range(loading_periods):
-                      #     inflow[i][cnt][(j,tt)] = math.ceil(float(dem)/float(loading_periods))
-  else:
-      lastt = 0
-      for i in demand.keys():
-          for j in demand[i].keys():
-              for t in demand[i][j].keys():
-                  for tt in demand[i][j][t].keys():
-                      inflow[i,t,j,tt] = inflow.get((i,t,j,tt), 0.0) + demand[i][j][t][tt]
-
-                  if t > lastt:
-                      lastt = t
-  print("\n\n\nLAST T: %d\n\n\n\n" % lastt)
-
-  for (i,j,t,tt) in productions.keys():
-    if (i,j,t,tt) not in inflow:
-        print(i,j,t,tt,'missing')
-
-  inflow = productions
-  outflow = demands
-
-  total_inflow = sum(inflow.get((i,t,j,tt), 0.0) for i in depots for t in mip.ticks for (j,tt) in shifts)
-  total_outflow = sum(outflow.get((j,tt,j,tt), 0.0) for (j,tt) in shifts)
-  total_demand = sum(demand[i][j][t][tt] for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys())
-  print("sanity check:", total_inflow, total_outflow, total_demand)
+  assert sum(productions.get((i,t,j,tt), 0.0) for i in depots for t in mip.ticks for (j,tt) in shifts) == sum(demands.get((j,tt,j,tt), 0.0) for (j,tt) in shifts)
 
   mip.model = Model()
 
@@ -532,9 +477,9 @@ if __name__ == "__main__":
   print("create truck capacity constraints")
   mip.create_depot_truck_capacity_constraints(locations, depots)
   print("create inventory outdepot constraints")
-  mip.create_inventory_constraints_outdepot(shifts, depots, locations, inflow)
+  mip.create_inventory_constraints_outdepot(shifts, depots, locations, productions)
   print("create inventory indepot constraints")
-  mip.create_inventory_constraints_indepot(shifts, depots, locations, outflow)
+  mip.create_inventory_constraints_indepot(shifts, depots, locations, demands)
   print("create inventory crossdocks constraints")
   mip.create_inventory_constraints_crossdock(shifts, crossdocks, locations)
   print("create capacity out constraints")
