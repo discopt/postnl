@@ -175,12 +175,12 @@ class MIP:
     first = True
     for t in trolleys:
       tick = network.trolleyReleaseTick(t)
-      if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) > self.network.deadlineTick(t.commodity):
-        if first:
-          print(f'Example for a trolley that cannot be delivered for time reasons: {t.source}<{self.network.name(t.source)}> -> {t.commodity[0]}<{self.network.name(t.commodity[0])}> within [{t.release},{self.network.deadline(t.commodity)}], but distance is {self.network.distance(t.source, t.commodity[0])}')
-          print(f'Ticks are {self.network.trolleyReleaseTick(t)} + {self.network.travelTicks(t.source, t.commodity[0])} > {self.network.deadlineTick(t.commodity)}')
-          first = False
-        continue
+#      if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) > self.network.deadlineTick(t.commodity):
+#        if first:
+#          print(f'Example for a trolley that cannot be delivered for time reasons: {t.source}<{self.network.name(t.source)}> -> {t.commodity[0]}<{self.network.name(t.commodity[0])}> within [{t.release},{self.network.deadline(t.commodity)}], but distance is {self.network.distance(t.source, t.commodity[0])}')
+#          print(f'Ticks are {self.network.trolleyReleaseTick(t)} + {self.network.travelTicks(t.source, t.commodity[0])} > {self.network.deadlineTick(t.commodity)}')
+#          first = False
+#        continue
 
       deliverableTrolleys.append(t)
       if tick < self._minTick:
@@ -194,9 +194,12 @@ class MIP:
     productions = {}
     demands = {}
     for t in trolleys:
+      if t.source == t.commodity[0]:
+        continue
       releaseTick = self.network.trolleyReleaseTick(t)
-      productions[t.source, releaseTick, t.commodity[0], t.commodity[1]] = productions.get((t.source, releaseTick, t.commodity[0], t.commodity[1]), 0) + 1
-      demands[t.commodity] = demands.get(t.commodity, 0) + 1
+      deadlineTick = self.network.deadlineTick(t.commodity)
+      productions[t.source, releaseTick, t.commodity[0], deadlineTick] = productions.get((t.source, releaseTick, t.commodity[0], deadlineTick), 0) + 1
+      demands[t.commodity[0], deadlineTick, t.commodity[0], deadlineTick] = demands.get((t.commodity[0], deadlineTick, t.commodity[0], deadlineTick), 0) + 1
     return productions,demands
 
   @property
@@ -312,7 +315,7 @@ class MIP:
     for t in self.ticks:
       for i in depots:
         for (s,st) in shifts:
-          self.model.addConstr( self.inventory_vars[(i,0,s,st,t)] == self.inventory_vars.get((i,0,s,st,t-1), 0.0) + inflow[i][t][(s,st)]
+          self.model.addConstr( self.inventory_vars[(i,0,s,st,t)] == self.inventory_vars.get((i,0,s,st,t-1), 0.0) + inflow.get((i,t,s,st), 0.0)
             - quicksum(self.shift_vars.get((i,j,s,st,t), 0.0) for j in self.network.locations if j != i))
 
   def create_inventory_constraints_indepot(self, shifts, depots, locations, outflow):
@@ -325,12 +328,12 @@ class MIP:
             for (s,st) in shifts:
                 if t >= st:
                     # we might not deliver everything
-                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] <= self.inventory_vars[(i,1,s,st,t-1)] - outflow[i][t][(s,st)] #+ self.not_delivered_vars[(i,s,st)]
+                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] <= self.inventory_vars[(i,1,s,st,t-1)] - outflow.get((i,t,s,st), 0.0) #+ self.not_delivered_vars[(i,s,st)]
                                      +
                                      quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 elif t > min(self.ticks):
                 # if t >= 1:
-                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] == self.inventory_vars[(i,1,s,st,t-1)] - outflow[i][t][(s,st)]
+                    self.model.addConstr( self.inventory_vars[(i,1,s,st,t)] == self.inventory_vars[(i,1,s,st,t-1)] - outflow.get((i,t,s,st), 0.0)
                                      +
                                      quicksum(self.shift_vars.get((j,i,s,st,t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i)), 0.0) for j in locations if (j,i) in self.network.connections and t-self.network.loadingTicks-self.network.unloadingTicks-self.network.distanceTicks(j,i) in self.ticks))
                 else:
@@ -427,13 +430,11 @@ if __name__ == "__main__":
 
   deliverableTrolleys = mip.scanTrolleys(trolleys)
 
-  productions,demands = mip.computeBalance(deliverableTrolleys)
+  productions,demands = mip.computeBalance(trolleys)
   
   loading_periods = 25
 
   unused1, unused2, demand, depots, crossdocks, unused6 = read_data(sys.argv[5])
-
-  print(crossdocks)
 
   if len(sys.argv) > 6:
     # allowed_arcs, allowed_transportation = read_solution_stage_01(sys.argv[2])
@@ -460,27 +461,15 @@ if __name__ == "__main__":
   shifts = set(shifts)
 
   # compute outflow of in-depots
-  outflow = dict()
-  for i in depots:
-      outflow[i] = dict()
-      for t in mip.ticks:
-          outflow[i][t] = dict()
-          for (s,st) in shifts:
-              outflow[i][t][(s,st)] = 0
+  outflow = {}
   for i in demand.keys():
       for j in demand[i].keys():
           for t in demand[i][j].keys():
               for tt in demand[i][j][t]:
-                  outflow[j][tt][(j,tt)] += demand[i][j][t][tt]
+                  outflow[j,tt,j,tt] = outflow.get((j,tt,j,tt), 0.0) + demand[i][j][t][tt]
 
   # compute inflow of out-depots
-  inflow = dict()
-  for i in depots:
-      inflow[i] = dict()
-      for t in mip.ticks:
-          inflow[i][t] = dict()
-          for (s,st) in shifts:
-              inflow[i][t][(s,st)] = 0
+  inflow = {}
 
   if False:
       scale_demand = dict()
@@ -507,15 +496,21 @@ if __name__ == "__main__":
           for j in demand[i].keys():
               for t in demand[i][j].keys():
                   for tt in demand[i][j][t].keys():
-                      inflow[i][t][(j,tt)] += demand[i][j][t][tt]
+                      inflow[i,t,j,tt] = inflow.get((i,t,j,tt), 0.0) + demand[i][j][t][tt]
 
                   if t > lastt:
                       lastt = t
   print("\n\n\nLAST T: %d\n\n\n\n" % lastt)
 
+  for (i,j,t,tt) in productions.keys():
+    if (i,j,t,tt) not in inflow:
+        print(i,j,t,tt,'missing')
 
-  total_inflow = sum(inflow[i][t][(j,tt)] for i in depots for t in mip.ticks for (j,tt) in shifts)
-  total_outflow = sum(outflow[j][tt][(j,tt)] for (j,tt) in shifts)
+  inflow = productions
+  outflow = demands
+
+  total_inflow = sum(inflow.get((i,t,j,tt), 0.0) for i in depots for t in mip.ticks for (j,tt) in shifts)
+  total_outflow = sum(outflow.get((j,tt,j,tt), 0.0) for (j,tt) in shifts)
   total_demand = sum(demand[i][j][t][tt] for i in demand.keys() for j in demand[i].keys() for t in demand[i][j].keys() for tt in demand[i][j][t].keys())
   print("sanity check:", total_inflow, total_outflow, total_demand)
 
@@ -552,5 +547,5 @@ if __name__ == "__main__":
 
   mip.model.optimize()
 
-  mip.evaluate_solution(shifts, mip.not_increasedcap_vars)
+#  mip.evaluate_solution(shifts, mip.not_increasedcap_vars)
 
