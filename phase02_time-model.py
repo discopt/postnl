@@ -115,6 +115,11 @@ def read_data(datafile):
             release = int(line.split()[4])
             deadline = int(line.split()[5])
 
+            # TODO: Good work-around? Ensure feasibility by shifting release dates to earlier if not even direct transport can make it.
+            if deadline < release + distances[origin][dest] + 1:
+              print(f'Shifting deadline of trolley {origin}->{dest} in [{release},{deadline}] with distance {distances[origin][dest]}={hourlyDistances[origin][dest]}.')
+              release = deadline - distances[origin][dest] - 1
+
             if deadline == 0:
                 print(origin, dest, release, deadline)
 
@@ -364,7 +369,9 @@ def create_inventory_constraints_crossdock(model, arcs, inventory_vars, shift_va
                                      +
                                      quicksum(shift_vars[(j,i,s,st,t-loading_time-unloading_time-distances[j][i])] for j in locations if (j,i) in arcs and t-loading_time-unloading_time-distances[j][i] >= 0))
                 else:
-                    model.addConstr( inventory_vars[(i,-1,s,st,t)] == 0 )
+                    model.addConstr( inventory_vars[(i,-1,s,st,t)] == 0 - quicksum(shift_vars[(i,j,s,st,t)] for j in locations if (i,j) in arcs)
+                                     +
+                                     quicksum(shift_vars[(j,i,s,st,t-loading_time-unloading_time-distances[j][i])] for j in locations if (j,i) in arcs and t-loading_time-unloading_time-distances[j][i] >= 0))
 
 def create_capacity_constraints_outdepot(model, arcs, shift_vars, inventory_vars, depots, times, shifts, locations, loading_time, unloading_time, out_capacity, increasedcap_vars):
     '''
