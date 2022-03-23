@@ -41,7 +41,7 @@ network.setDiscretization(tickHours, tickZero)
 
 class MIP:
   
-  def __init__(self, network):
+  def __init__(self, network, usedTruckRoutesFileName):
     self._vtypeFlow = GRB.CONTINUOUS
     self._vtypeInventory = GRB.CONTINUOUS
 
@@ -67,6 +67,26 @@ class MIP:
     self._undeliveredPenalty = 1e4
     self._extenedCapacityCost = 1e4
     self._extraDockPenalty = 1e4
+    self._allowedTrucks = self.read_allowed_trucks(usedTruckRoutesFileName)
+
+  def read_allowed_trucks(self, usedTruckRoutesFileName):
+
+    if usedTruckRoutesFileName is None:
+      return None
+
+    allowedTrucks = set()
+
+    f = open(usedTruckRoutesFileName, 'r')
+
+    for line in f:
+      split = line.split()
+      source, target, time = int(split[1]), int(split[2]), float(split[3])
+      allowedTrucks.add((source, target, (time - self.network._tickZero) / self.network._tickHours))
+      # allowedTrucks.add((source, target, 1 + (time - self.network._tickZero) / self.network._tickHours))
+
+    f.close()
+
+    return allowedTrucks
 
   def scanTrolleys(self, trolleys):
     deliverableTrolleys = []
@@ -103,16 +123,32 @@ class MIP:
   def arcs(self):
     return self._arcs
 
+  @property
+  def truckvars(self):
+    return self._varTruck
+
+  @property
+  def mintick(self):
+    return self._minTick
+
+  @property
+  def maxtick(self):
+    return self._maxTick
+
   def createTruckVars(self, free=False):
     print('Creating truck variables.')
     self._varTruck = {}
+    allowedTrucks = self._allowedTrucks
     for (i,j) in self.arcs:
       for t in self.ticks:
         if t + self.network.travelTicks(i,j) <= max(self.ticks):
           obj = self.network.distance(i,j)
+          ub = 9999.0
           if free:
             obj = 0.0
-          self._varTruck[i,j,t] = self._model.addVar(name=f'x#{i}#{j}#{t}', vtype=GRB.INTEGER, obj=obj)
+          if allowedTrucks != None and not (i,j,t) in allowedTrucks:
+            ub = 0.0
+          self._varTruck[i,j,t] = self._model.addVar(name=f'x#{i}#{j}#{t}', vtype=GRB.INTEGER, obj=obj, ub=ub)
     self._model.update()
 
   def createExtraDocksVars(self):
@@ -295,7 +331,7 @@ class MIP:
 requiredTrolleys = [ t for t in trolleys if t.source != t.commodity[0] ]
 print(f'{len(trolleys) - len(requiredTrolleys)} trolleys have origin = destination.')
 
-mip = MIP(network)
+mip = MIP(network, usedTruckRoutesFileName)
 deliverableTrolleys = mip.scanTrolleys(requiredTrolleys)
 print(f'Ticks are in range [{min(mip.ticks)},{max(mip.ticks)}].')
 print(f'{len(requiredTrolleys) - len(deliverableTrolleys)} trolleys cannot be delivered for time reasons.')
@@ -316,9 +352,9 @@ status = mip.optimize()
 
 if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
   mip.printSolution()
-)
   if usedTrucksOutputFileName != None:
-    mip.writeUsedTrucks(usedTrucksOutputFileName
+    mip.writeUsedTrucks(usedTrucksOutputFileName)
+
 
 #mip.write('mip.lp')
 
