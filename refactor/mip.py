@@ -1,6 +1,9 @@
 import sys
 from gurobipy import *
 from common import *
+import matplotlib.pyplot as plt
+import math
+import time
 
 def printUsage(errorMessage=None):
   if errorMessage is not None:
@@ -286,6 +289,76 @@ class MIP:
             lhs += self._varInventory.get((i,t,target,shift), 0.0)
         self._model.addConstr( lhs <= self.network.targetCapacity(i) )
 
+  def constructInitialSolution(self, trolleys):
+
+    network = self.network
+    truck_vars = self.truckvars
+    mintick = self.mintick
+    maxtick = self.maxtick
+    truck_capacity = network.truckCapacity
+
+    # collect information about releasing the trolleys over time
+    depot_inventories = {}
+    sources = set()
+    targets = set()
+    duetimes = set()
+    for t in trolleys:
+      releaseTick = network.trolleyReleaseTick(t)
+      source = t.source
+      target = t.commodity[0]
+      depot_inventories[source, releaseTick, target] = depot_inventories.get((source, releaseTick, target), 0) + 1
+      sources.add(source)
+      targets.add(target)
+
+    # derive truck departures from depot_inventories
+    departures = {}
+    corrections = {}
+    for rt in range(mintick, maxtick+1):
+      for s in sources:
+        for t in targets:
+          if depot_inventories.get((s,rt,t),0) >= truck_capacity:
+            truck_vars[s,t,rt].Start = math.ceil(depot_inventories[s,rt,t] / truck_capacity)
+            corrections[s,rt,t] = corrections.get((s,rt,t), 0) + depot_inventories[s,rt,t]
+            depot_inventories[s,rt,t] = depot_inventories[s,rt,t] - corrections[s,rt,t]
+
+          # elif depot_inventories.get((s,rt,t),0) > 0 and depot_inventories.get((s,rt,t),0) == depot_inventories.get((s,rt-2,t),0):
+          elif depot_inventories.get((s,rt,t),0) > 0 and not (s,t,rt+1) in truck_vars:
+            truck_vars[s,t,rt].Start = math.ceil(depot_inventories[s,rt,t] / truck_capacity)
+            corrections[s,rt,t] = corrections.get((s,rt,t), 0) + depot_inventories[s,rt,t]
+            depot_inventories[s,rt,t] = depot_inventories[s,rt,t] - corrections[s,rt,t]
+
+          elif rt < maxtick and depot_inventories.get((s,rt,t),0) > 0:
+            depot_inventories[s,rt+1,t] = depot_inventories.get((s,rt+1,t),0) + depot_inventories[s,rt,t]
+            if (s,t,rt) in truck_vars:
+              truck_vars[s,t,rt].Start = 0.0
+
+    # for s in sources:
+    #   for t in targets:
+    #     print(s,t)
+    #     yvals = [depot_inventories.get((s,j,t),0) for j in range(mintick, maxtick+1)]
+    #     fig, ax1 = plt.subplots()
+
+    #     lns1 = ax1.plot(range(mintick, maxtick+1), yvals)
+    #     plt.show()
+
+  def constructInitialSolutionLog(self, logfile):
+
+    f = open(logfile, 'r')
+
+    network = self.network
+    truck_vars = self.truckvars
+    mintick = self.mintick
+    maxtick = self.maxtick
+    truck_capacity = network.truckCapacity
+
+    for line in f:
+      split = line.split()
+      source, target, tick, num = int(split[1]), int(split[2]), int(split[3]), int(split[4])
+      truck_vars[source,target,tick].Start = num
+
+    f.close()
+
+
   def optimize(self):
     self._model.optimize()
     return self._model.status
@@ -306,6 +379,9 @@ class MIP:
     loadingTicks = self.network.loadingTicks
     unloadingTicks = self.network.unloadingTicks
     totalDrivingDistance = 0.0
+
+    f = open("log%f.txt" % time.time(), 'w')
+
     for (i,j) in self.arcs:
       for t in self.ticks:
         if t + self.network.travelTicks(i,j) <= max(self.ticks):
@@ -315,10 +391,12 @@ class MIP:
             for target,shift in self.network.commodities:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
                 usage += self._varFlow[i,j,t,target,shift].x
-#            print(f'Truck from {i}<{self.network.name(i)}> to {j}<{self.network.name(j)}> at tick {t} -> {t + self.network.travelTicks(i,j)}, carrying {round(usage,2)} trolleys.')
-#          for target,shift in self.network.commodities:
-#            if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
-#              print(f'  It carries {round(self._varFlow[i,j,t,target,shift].x,2)} trolleys of commodity {target}<{self.network.name(target)}>,{shift} from {i}<{self.network.name(i)}> to {j}<{self.network.name(j)}> at tick {t} -> {t + self.network.travelTicks(i,j)}.')
+            print(f'Truck from {i}<{self.network.name(i)}> to {j}<{self.network.name(j)}> at tick {t} -> {t + self.network.travelTicks(i,j)}, carrying {round(usage,2)} trolleys.')
+            f.write(f'TT {i} {j} {t} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
+
+            for target,shift in self.network.commodities:
+              if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
+                print(f'  It carries {round(self._varFlow[i,j,t,target,shift].x,2)} trolleys of commodity {target}<{self.network.name(target)}>,{shift} from {i}<{self.network.name(i)}> to {j}<{self.network.name(j)}> at tick {t} -> {t + self.network.travelTicks(i,j)}.')
     for target,shift in self.network.commodities:
       if (target,shift) in self._varNotDelivered and self._varNotDelivered[target,shift].x > 0.5:
         print(f'Commodity {target}<{self.network.name(target)}>,{shift} has {round(self._varNotDelivered[target,shift].x,0)} undelivered trolleys.')
@@ -328,6 +406,8 @@ class MIP:
             print(f'Commodity {target}<{self.network.name(target)}>,{shift} has {round(self._varNotProduced[i,t,target,shift].x,0)} trolleys not produced in {i}<{self.network.name(i)}> at tick {t}.')
     print(f'Total driving distance is {totalDrivingDistance}.')
 
+    f.close()
+
 requiredTrolleys = [ t for t in trolleys if t.source != t.commodity[0] ]
 print(f'{len(trolleys) - len(requiredTrolleys)} trolleys have origin = destination.')
 
@@ -335,18 +415,22 @@ mip = MIP(network, usedTruckRoutesFileName)
 deliverableTrolleys = mip.scanTrolleys(requiredTrolleys)
 print(f'Ticks are in range [{min(mip.ticks)},{max(mip.ticks)}].')
 print(f'{len(requiredTrolleys) - len(deliverableTrolleys)} trolleys cannot be delivered for time reasons.')
-mip.createTruckVars(True)
+mip.createTruckVars(False)
+# mip.createTruckVars(True)
 mip.createFlowVars()
 mip.createInventoryVars()
-mip.createExtraDocksVars()
-#mip.createNotDeliveredVars()
-#mip.createNotProducedVars()
-#mip.createExtendedCapacityVars()
+# mip.createExtraDocksVars()
+# mip.createNotDeliveredVars()
+# mip.createNotProducedVars()
+# mip.createExtendedCapacityVars()
 mip.createCapacityConstraints()
 mip.createSourceCapacityConstraints()
 mip.createTargetCapacityConstraints()
 mip.createFlowBalanceConstraints(deliverableTrolleys)
 mip.createDockingConstraints()
+
+# mip.constructInitialSolution(requiredTrolleys)
+# mip.constructInitialSolutionLog("log.txt") # requires a log file from a previous run that contains the used trucks
 
 status = mip.optimize()
 
