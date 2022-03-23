@@ -132,6 +132,9 @@ class Network:
   def deadlineTick(self, commodity):
     return int(math.floor((self.deadline(commodity) - self._tickZero) / self._tickHours))
 
+  def tickTime(self, tick):
+    return tick * self._tickHours + self._tickZero
+
   def distance(self, source, target):
     return self._locationData[source].distances[target]
 
@@ -169,6 +172,7 @@ class Network:
       if len(row) == 1:
         row = row[0].split(';')
       trolleys.append(Trolley(self.find(row[0]), float(row[-1]), (self.find(row[1]), int(row[-2]))))
+
     return trolleys
 
   def trolleyReleaseTick(self, trolley):

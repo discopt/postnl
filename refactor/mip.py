@@ -316,9 +316,9 @@ status = mip.optimize()
 
 if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
   mip.printSolution()
-  if len(sys.argv) >= 6:
-    mip.writeUsedTrucks(sys.argv[5])
-
+)
+  if usedTrucksOutputFileName != None:
+    mip.writeUsedTrucks(usedTrucksOutputFileName
 
 #mip.write('mip.lp')
 
