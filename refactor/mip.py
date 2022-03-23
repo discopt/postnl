@@ -186,7 +186,7 @@ class MIP:
       for t in self.ticks:
         for target,shift in self.network.commodities:
           obj = 1.0e5 if t == max(self.ticks) else 0.0
-          ub = 0 if t == max(self.ticks) else 1
+          ub = 0 if t == max(self.ticks) else GRB.INFINITY
           self._varInventory[i,t,target,shift] = self._model.addVar(name=f'z#{i}#{t}#{target}#{shift}', vtype=self._vtypeInventory, obj=obj, ub=ub)
     self._model.update()
 
