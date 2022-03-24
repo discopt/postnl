@@ -13,38 +13,13 @@ def printUsage(errorMessage=None):
   print('Options:')
   print('  -oT FILE  Write used trucks to <FILE>.')
   print('  -rT FILE  Read used trucks from <FILE> and use routes.')
+  print('  -tl TIME  Time limit imposed after we have found a feasible solution.')
+  print('  -fT       Whether only trucks from a read solution are permitted.')
   sys.exit(1)
-
-if len(sys.argv) < 5:
-  printUsage('Requires 4 arguments.')
-
-network = Network(sys.argv[1])
-trolleys = network.readTrolleys(sys.argv[4])
-tickHours = float(sys.argv[2])
-tickZero = float(sys.argv[3])
-usedTrucksOutputFileName = None
-usedTruckRoutesFileName = None
-a = 5
-while a < len(sys.argv):
-  arg = sys.argv[a]
-  if arg == '-oT' and a+1 < len(sys.argv):
-    usedTrucksOutputFileName = sys.argv[a+1]
-    a += 1
-  elif arg == '-rT' and a+1 < len(sys.argv):
-    usedTruckRoutesFileName = sys.argv[a+1]
-    a += 1
-  else:
-    printUsage(f'Unprocessed argument <{arg}>.')
-  a += 1
-
-
-print(f'Read instance with {len(network.locations)} locations and {len(trolleys)} trolleys.')
-
-network.setDiscretization(tickHours, tickZero)
 
 class MIP:
   
-  def __init__(self, network, usedTruckRoutesFileName):
+  def __init__(self, network, usedTruckRoutesFileName, forbid_trucks):
     self._vtypeFlow = GRB.CONTINUOUS
     self._vtypeInventory = GRB.CONTINUOUS
 
@@ -67,14 +42,17 @@ class MIP:
     self._varNotProduced = {}
     self._varExtendedCapacity = {}
     self._varExtraDocks = {}
-    self._undeliveredPenalty = 1e4
-    self._extenedCapacityCost = 1e4
-    self._extraDockPenalty = 1e4
-    self._allowedTrucks = self.read_allowed_trucks(usedTruckRoutesFileName)
+    # self._undeliveredPenalty = 1e4
+    # self._extenedCapacityCost = 1e4
+    # self._extraDockPenalty = 1e4
+    self._undeliveredPenalty = 1e1
+    self._extenedCapacityCost = 1e1
+    self._extraDockPenalty = 1e1
+    self._allowedTrucks = self.read_allowed_trucks(usedTruckRoutesFileName, forbid_trucks)
 
-  def read_allowed_trucks(self, usedTruckRoutesFileName):
+  def read_allowed_trucks(self, usedTruckRoutesFileName, forbid_trucks):
 
-    if usedTruckRoutesFileName is None:
+    if usedTruckRoutesFileName is None or not forbid_trucks:
       return None
 
     allowedTrucks = set()
@@ -82,10 +60,13 @@ class MIP:
     f = open(usedTruckRoutesFileName, 'r')
 
     for line in f:
+      # only read times of trucks
+      if not line.startswith('T'):
+        continue
       split = line.split()
       source, target, time = int(split[1]), int(split[2]), float(split[3])
       allowedTrucks.add((source, target, (time - self.network._tickZero) / self.network._tickHours))
-      # allowedTrucks.add((source, target, 1 + (time - self.network._tickZero) / self.network._tickHours))
+      allowedTrucks.add((source, target, 1 + (time - self.network._tickZero) / self.network._tickHours))
 
     f.close()
 
@@ -95,7 +76,7 @@ class MIP:
     deliverableTrolleys = []
     first = True
     for t in trolleys:
-      tick = network.trolleyReleaseTick(t)
+      tick = self.network.trolleyReleaseTick(t)
       if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) > self.network.deadlineTick(t.commodity):
         if first:
           print(f'Example for a trolley that cannot be delivered for time reasons: {t.source}<{self.network.name(t.source)}> -> {t.commodity[0]}<{self.network.name(t.commodity[0])}> within [{t.release},{self.network.deadline(t.commodity)}], but distance is {self.network.distance(t.source, t.commodity[0])}')
@@ -197,7 +178,7 @@ class MIP:
       self._varNotDelivered[target,shift] = self._model.addVar(name=f'notdeliver#{target}#{shift}', obj=self._undeliveredPenalty)
     self._model.update()
 
-  def createNotProducedVars(self):
+  def createNotProducedVars(self, trolleys):
     print('Creating non-production variables.')
     production = {}
     demand = {}
@@ -343,6 +324,10 @@ class MIP:
 
   def constructInitialSolutionLog(self, logfile):
 
+    # do nothing if no file has been provided
+    if logfile is None:
+      return
+
     f = open(logfile, 'r')
 
     network = self.network
@@ -351,7 +336,10 @@ class MIP:
     maxtick = self.maxtick
     truck_capacity = network.truckCapacity
 
+    # read the capacities used by the trucks in the previous solution
     for line in f:
+      if not line.startswith('C'):
+        continue
       split = line.split()
       source, target, tick, num = int(split[1]), int(split[2]), int(split[3]), int(split[4])
       truck_vars[source,target,tick].Start = num
@@ -363,6 +351,18 @@ class MIP:
     self._model.optimize()
     return self._model.status
 
+  def setSollimit(self, limit):
+    self._model.Params.SolutionLimit = limit
+
+  def setTimelimit(self, limit):
+    self._model.Params.TimeLimit = limit
+
+  def getRuntime(self):
+    return self._model.Runtime
+
+  def getSolutionValue(self):
+    return self._model.ObjVal
+
   def write(self, fileName):
     self._model.write(fileName)
 
@@ -373,14 +373,25 @@ class MIP:
         if t + self.network.travelTicks(i,j) <= max(self.ticks):
           if self._varTruck[i,j,t].x > 0.5:
             f.write(f'T {i} {j} {self.network.tickTime(t)}\n')
+
+    for (i,j) in self.arcs:
+      for t in self.ticks:
+        if t + self.network.travelTicks(i,j) <= max(self.ticks):
+          if self._varTruck[i,j,t].x > 0.5:
+            usage = 0.0
+            for target,shift in self.network.commodities:
+              if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
+                usage += self._varFlow[i,j,t,target,shift].x
+            f.write(f'C {i} {j} {t} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
+
     f.close()
 
   def printSolution(self):
     loadingTicks = self.network.loadingTicks
     unloadingTicks = self.network.unloadingTicks
     totalDrivingDistance = 0.0
-
-    f = open("log%f.txt" % time.time(), 'w')
+    totalUndelivered = 0
+    totalNotproduced = 0
 
     for (i,j) in self.arcs:
       for t in self.ticks:
@@ -392,7 +403,6 @@ class MIP:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
                 usage += self._varFlow[i,j,t,target,shift].x
             print(f'Truck from {i}<{self.network.name(i)}> to {j}<{self.network.name(j)}> at tick {t} -> {t + self.network.travelTicks(i,j)}, carrying {round(usage,2)} trolleys.')
-            f.write(f'TT {i} {j} {t} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
 
             for target,shift in self.network.commodities:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
@@ -400,44 +410,17 @@ class MIP:
     for target,shift in self.network.commodities:
       if (target,shift) in self._varNotDelivered and self._varNotDelivered[target,shift].x > 0.5:
         print(f'Commodity {target}<{self.network.name(target)}>,{shift} has {round(self._varNotDelivered[target,shift].x,0)} undelivered trolleys.')
+        totalUndelivered += round(self._varNotDelivered[target,shift].x,0)
       for i in self.nodes:
         for t in self.ticks:
           if (i,t,target,shift) in self._varNotProduced and self._varNotProduced[i,t,target,shift].x > 0.5:
-            print(f'Commodity {target}<{self.network.name(target)}>,{shift} has {round(self._varNotProduced[i,t,target,shift].x,0)} trolleys not produced in {i}<{self.network.name(i)}> at tick {t}.')
+            print(f'Commodity {target}<{self.network.name(target)}>,{shift} has {round(self._varNotProduced[i,t,target,shift].x,0)} trolleys not produced in {i}<{self.network.name(i)}> at tick {t} (deadline {self.network.deadlineTick((target,shift))}).')
+            totalNotproduced += round(self._varNotProduced[i,t,target,shift].x,0)
     print(f'Total driving distance is {totalDrivingDistance}.')
+    print(f'Total number of undelivered trolleys is {totalUndelivered}.')
+    print(f'Total number of not produced trolleys is {totalNotproduced}.')
 
-    f.close()
 
-requiredTrolleys = [ t for t in trolleys if t.source != t.commodity[0] ]
-print(f'{len(trolleys) - len(requiredTrolleys)} trolleys have origin = destination.')
-
-mip = MIP(network, usedTruckRoutesFileName)
-deliverableTrolleys = mip.scanTrolleys(requiredTrolleys)
-print(f'Ticks are in range [{min(mip.ticks)},{max(mip.ticks)}].')
-print(f'{len(requiredTrolleys) - len(deliverableTrolleys)} trolleys cannot be delivered for time reasons.')
-mip.createTruckVars(False)
-# mip.createTruckVars(True)
-mip.createFlowVars()
-mip.createInventoryVars()
-# mip.createExtraDocksVars()
-# mip.createNotDeliveredVars()
-# mip.createNotProducedVars()
-# mip.createExtendedCapacityVars()
-mip.createCapacityConstraints()
-mip.createSourceCapacityConstraints()
-mip.createTargetCapacityConstraints()
-mip.createFlowBalanceConstraints(deliverableTrolleys)
-mip.createDockingConstraints()
-
-# mip.constructInitialSolution(requiredTrolleys)
-# mip.constructInitialSolutionLog("log.txt") # requires a log file from a previous run that contains the used trucks
-
-status = mip.optimize()
-
-if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
-  mip.printSolution()
-  if usedTrucksOutputFileName != None:
-    mip.writeUsedTrucks(usedTrucksOutputFileName)
 
 
 #mip.write('mip.lp')
@@ -476,4 +459,95 @@ if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBO
 #status = mip.optimize()
 #mip.printSolution()
 
+def run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, construct_initial, TIMELIMIT, silent=True):
 
+  print(f'Read instance with {len(network.locations)} locations and {len(trolleys)} trolleys.')
+
+  network.setDiscretization(tickHours, tickZero)
+
+  requiredTrolleys = [ t for t in trolleys if t.source != t.commodity[0] ]
+  print(f'{len(trolleys) - len(requiredTrolleys)} trolleys have origin = destination.')
+
+  mip = MIP(network, usedTruckRoutesFileName, forbid_trucks)
+  deliverableTrolleys = mip.scanTrolleys(requiredTrolleys)
+  print(f'Ticks are in range [{min(mip.ticks)},{max(mip.ticks)}].')
+  print(f'{len(requiredTrolleys) - len(deliverableTrolleys)} trolleys cannot be delivered for time reasons.')
+  mip.createTruckVars(False)
+  # mip.createTruckVars(True)
+  mip.createFlowVars()
+  mip.createInventoryVars()
+  mip.createExtraDocksVars()
+  mip.createNotDeliveredVars()
+  mip.createNotProducedVars(requiredTrolleys)
+  mip.createExtendedCapacityVars()
+  mip.createCapacityConstraints()
+  mip.createSourceCapacityConstraints()
+  mip.createTargetCapacityConstraints()
+  mip.createFlowBalanceConstraints(deliverableTrolleys)
+  mip.createDockingConstraints()
+
+  # mip.constructInitialSolution(requiredTrolleys)
+  if construct_initial:
+    mip.constructInitialSolutionLog(usedTruckRoutesFileName)
+
+  status = None
+  curtime = 0.0
+
+  # run the code to produce one solution in case we do not read an initial solution
+  if usedTruckRoutesFileName is None:
+    mip.setSollimit(1)
+    status = mip.optimize()
+    curtime = mip.getRuntime()
+
+  # continue running the code until it hits a time limit (or finds an optimal solution)
+  mip.setSollimit(1000)
+  mip.setTimelimit(curtime + TIMELIMIT)
+
+  status = mip.optimize()
+
+  val = GRB.INFINITY
+  if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
+    if not silent:
+      mip.printSolution()
+    val = mip.getSolutionValue()
+    if usedTrucksOutputFileName != None:
+      mip.writeUsedTrucks(usedTrucksOutputFileName)
+
+  return val
+
+def main():
+  if len(sys.argv) < 5:
+    printUsage('Requires 4 arguments.')
+
+  network = Network(sys.argv[1])
+  trolleys = network.readTrolleys(sys.argv[4])
+  tickHours = float(sys.argv[2])
+  tickZero = float(sys.argv[3])
+  usedTrucksOutputFileName = None
+  usedTruckRoutesFileName = None
+  forbid_trucks = False
+  TIMELIMIT = 86400               # one day is standard time limit
+  a = 5
+  while a < len(sys.argv):
+    arg = sys.argv[a]
+    if arg == '-oT' and a+1 < len(sys.argv):
+      usedTrucksOutputFileName = sys.argv[a+1]
+      a += 1
+    elif arg == '-rT' and a+1 < len(sys.argv):
+      usedTruckRoutesFileName = sys.argv[a+1]
+      a += 1
+    elif arg == 'tl' and a+1 < len(sys.argv):
+      TIMELIMIT = float(sys.argv[a+1])
+      a += 1
+    elif arg == 'fT':
+      forbid_trucks = True
+    else:
+      printUsage(f'Unprocessed argument <{arg}>.')
+    a += 1
+
+  solval = run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, TIMELIMIT)
+  print(f'The best incumbent solution has value {solval}.')
+
+if __name__ == "__main__":
+  main()
+  
