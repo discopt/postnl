@@ -459,7 +459,7 @@ class MIP:
 #status = mip.optimize()
 #mip.printSolution()
 
-def run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, construct_initial, TIMELIMIT, silent=True):
+def run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, construct_initial, TIMELIMIT, silent=True, sollimit=None, soltimelimit=60):
 
   print(f'Read instance with {len(network.locations)} locations and {len(trolleys)} trolleys.')
 
@@ -493,11 +493,30 @@ def run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFile
   status = None
   curtime = 0.0
 
+  # if we use a solution limit together with a time limit
+  if not sollimit is None:
+    mip.setSollimit(sollimit)
+    mip.setTimelimit(TIMELIMIT)
+    status = mip.optimize()
+    mip.setSollimit(1000)
+    mip.setTimelimit(min(soltimelimit, max(0, TIMELIMIT - mip.getRuntime())))
+    status = mip.optimize()
+    val = GRB.INFINITY
+    if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
+      if not silent:
+        mip.printSolution()
+      val = mip.getSolutionValue()
+      if usedTrucksOutputFileName != None:
+        mip.writeUsedTrucks(usedTrucksOutputFileName)
+
+    return val
+
   # run the code to produce one solution in case we do not read an initial solution
   if usedTruckRoutesFileName is None:
     mip.setSollimit(1)
     status = mip.optimize()
     curtime = mip.getRuntime()
+    
 
   # continue running the code until it hits a time limit (or finds an optimal solution)
   mip.setSollimit(1000)
