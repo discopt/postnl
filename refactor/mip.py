@@ -130,9 +130,8 @@ class MIP:
           ub = 9999.0
           if free:
             obj = 0.0
-          if allowedTrucks != None and not (i,j,t) in allowedTrucks:
-            ub = 0.0
-          self._varTruck[i,j,t] = self._model.addVar(name=f'x#{i}#{j}#{t}', vtype=GRB.INTEGER, obj=obj, ub=ub)
+          if allowedTrucks is None or (i,j,t) in allowedTrucks:
+            self._varTruck[i,j,t] = self._model.addVar(name=f'x#{i}#{j}#{t}', vtype=GRB.INTEGER, obj=obj, ub=ub)
     self._model.update()
 
   def createExtraDocksVars(self):
@@ -156,7 +155,7 @@ class MIP:
       for t in self.ticks:
         if t + self.network.travelTicks(i,j) <= max(self.ticks):
           for target,shift in self.network.commodities:
-            if self.network.isCross(j) or target == j:
+            if (target == j and t + self.network.travelTicks(i,j) <= self.network.deadlineTick((target,shift))) or (self.network.isCross(j) and t + self.network.travelTicks(i,j) + self.network.travelTicks(j,target) <= self.network.deadlineTick((target,shift))):
               self._varFlow[i,j,t,target,shift] = self._model.addVar(name=f'y#{i}#{j}#{t}#{target}#{shift}', vtype=self._vtypeFlow)
     self._model.update()
 
@@ -168,7 +167,8 @@ class MIP:
         for target,shift in self.network.commodities:
           obj = 1.0e5 if t == max(self.ticks) else 0.0
           ub = 0 if t == max(self.ticks) else GRB.INFINITY
-          self._varInventory[i,t,target,shift] = self._model.addVar(name=f'z#{i}#{t}#{target}#{shift}', vtype=self._vtypeInventory, obj=obj, ub=ub)
+          if ub > 0:
+            self._varInventory[i,t,target,shift] = self._model.addVar(name=f'z#{i}#{t}#{target}#{shift}', vtype=self._vtypeInventory, obj=obj, ub=ub)
     self._model.update()
 
   def createNotDeliveredVars(self):
@@ -237,7 +237,7 @@ class MIP:
       for t in self.ticks:
         for target,shift in self.network.commodities:
           oldInventory = self._varInventory.get((i,t-1,target,shift), 0.0)
-          newInventory = self._varInventory[i,t,target,shift]
+          newInventory = self._varInventory.get((i,t,target,shift), 0.0)
           outFlow = quicksum( self._varFlow.get((i,j,t,target,shift), 0.0) for j in self.nodes if t+self.network.travelTicks(i,j) in self.ticks)
           inFlow = quicksum( self._varFlow.get((j,i,t-self.network.travelTicks(j,i),target,shift), 0.0) for j in self.nodes )
           produced = production.get((i,t,target,shift), 0)
@@ -564,7 +564,7 @@ def main():
       printUsage(f'Unprocessed argument <{arg}>.')
     a += 1
 
-  solval = run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, TIMELIMIT)
+  solval = run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, True, TIMELIMIT)
   print(f'The best incumbent solution has value {solval}.')
 
 if __name__ == "__main__":
