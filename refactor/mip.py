@@ -72,24 +72,28 @@ class MIP:
 
     return allowedTrucks
 
-  def scanTrolleys(self, trolleys):
-    deliverableTrolleys = []
-    first = True
+  def setTimeHorizon(self, trolleys):
     for t in trolleys:
       tick = self.network.trolleyReleaseTick(t)
-      if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) > self.network.deadlineTick(t.commodity):
-        if first:
-          print(f'Example for a trolley that cannot be delivered for time reasons: {t.source}<{self.network.name(t.source)}> -> {t.commodity[0]}<{self.network.name(t.commodity[0])}> within [{t.release},{self.network.deadline(t.commodity)}], but distance is {self.network.distance(t.source, t.commodity[0])}')
-          print(f'Ticks are {self.network.trolleyReleaseTick(t)} + {self.network.travelTicks(t.source, t.commodity[0])} > {self.network.deadlineTick(t.commodity)}')
-          first = False
-        continue
-
-      deliverableTrolleys.append(t)
       if tick < self._minTick:
         self._minTick = tick
       if tick > self._maxTick:
         self._maxTick = tick
-    return deliverableTrolleys
+
+  def filterDeliverableTrolleys(self, trolleys):
+    return [ t for t in trolleys if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) <= self.network.deadlineTick(t.commodity) ]
+
+  def makeTrolleysDeliverable(self, trolleys):
+    modifiedTrolleys = []
+    countModifications = 0
+    for t in trolleys:
+      if self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) > self.network.deadlineTick(t.commodity):
+        newRelease = self.network.tickTime( self.network.deadlineTick(t.commodity) - self.network.travelTicks(t.source, t.commodity[0]) )
+        t = Trolley(t.source, newRelease, t.commodity)
+        countModifications += 1
+      assert self.network.trolleyReleaseTick(t) + self.network.travelTicks(t.source, t.commodity[0]) <= self.network.deadlineTick(t.commodity)
+      modifiedTrolleys.append(t)
+    return modifiedTrolleys, countModifications
 
   @property
   def network(self):
@@ -461,29 +465,39 @@ class MIP:
 
 def run_experiments(network, trolleys, tickHours, tickZero, usedTrucksOutputFileName, usedTruckRoutesFileName, forbid_trucks, construct_initial, TIMELIMIT, silent=True, sollimit=None, soltimelimit=60):
 
+  modifyTrolleysDeliverable = True
+
   print(f'Read instance with {len(network.locations)} locations and {len(trolleys)} trolleys.')
 
   network.setDiscretization(tickHours, tickZero)
 
   requiredTrolleys = [ t for t in trolleys if t.source != t.commodity[0] ]
-  print(f'{len(trolleys) - len(requiredTrolleys)} trolleys have origin = destination.')
+  print(f'Removed {len(trolleys) - len(requiredTrolleys)} trolleys having equal origin and destination.')
 
   mip = MIP(network, usedTruckRoutesFileName, forbid_trucks)
-  deliverableTrolleys = mip.scanTrolleys(requiredTrolleys)
+
+  if modifyTrolleysDeliverable:
+    trolleys,numModifications = mip.makeTrolleysDeliverable(requiredTrolleys)
+    print(f'Modified {numModifications} trolley release times to make them deliverable.')
+  else:
+    trolleys = mip.filterDeliverableTrolleys(requiredTrolleys)
+    print(f'Kept {len(trolleys)} of {len(requiredTrolleys)} deliverable trolleys.')
+
+  mip.setTimeHorizon(trolleys)
   print(f'Ticks are in range [{min(mip.ticks)},{max(mip.ticks)}].')
-  print(f'{len(requiredTrolleys) - len(deliverableTrolleys)} trolleys cannot be delivered for time reasons.')
+
   mip.createTruckVars(False)
   # mip.createTruckVars(True)
   mip.createFlowVars()
   mip.createInventoryVars()
   mip.createExtraDocksVars()
   mip.createNotDeliveredVars()
-  mip.createNotProducedVars(requiredTrolleys)
+  mip.createNotProducedVars(trolleys)
   mip.createExtendedCapacityVars()
   mip.createCapacityConstraints()
   mip.createSourceCapacityConstraints()
   mip.createTargetCapacityConstraints()
-  mip.createFlowBalanceConstraints(deliverableTrolleys)
+  mip.createFlowBalanceConstraints(trolleys)
   mip.createDockingConstraints()
 
   # mip.constructInitialSolution(requiredTrolleys)
