@@ -131,12 +131,12 @@ class MIP:
             obj = 0.0
           if not self._allowedTrucks is None:
             if not (i,j) in self._allowedTrucks:
-              print(f'Disallowing truck route from {i} to {j} completely.')
+#              print(f'Disallowing truck route from {i} to {j} completely.')
               ub = 0.0
             else:
               dist = min( math.fabs(self.network.tickTime(t) - at) for at in self._allowedTrucks[i,j])
               if dist > self._allowedTruckDeviation:
-                print(f'Disallowing truck route from {i} to {j} at tick {t} = time {self._network.tickTime(t)} because of distance {dist}.')
+#                print(f'Disallowing truck route from {i} to {j} at tick {t} = time {self._network.tickTime(t)} because of distance {dist}.')
                 ub = 0.0
           if ub > 0.0:
             self._varTruck[i,j,t] = self._model.addVar(name=f'x#{i}#{j}#{t}', vtype=GRB.INTEGER, obj=obj, ub=ub)
@@ -155,7 +155,7 @@ class MIP:
     self._varTruck = {}
     for (i,j) in self.arcs:
       for t in self.ticks:
-        self._varTruck[i,j,t] = 1000
+        self._varTruck[i,j,t] = 1000.0
     self._model.update()
 
   def createFlowVars(self):
@@ -348,12 +348,10 @@ class MIP:
 
     # read the capacities used by the trucks in the previous solution
     for line in f:
-      if not line.startswith('C'):
-        continue
       split = line.split()
-      source, target, tick, num = int(split[1]), int(split[2]), int(split[3]), int(split[4])
-      truck_vars[source,target,tick].Start = num
-
+      if split and split[0] == 'C':
+        source, target, tick, num = int(split[1]), int(split[2]), int(split[3]), int(split[4])
+        truck_vars[source,target,tick].Start = num
     f.close()
 
 
@@ -371,7 +369,17 @@ class MIP:
     return self._model.Runtime
 
   def getSolutionValue(self):
-    return self._model.ObjVal
+    if self._model.status in [GRB.INFEASIBLE, GRB.INF_OR_UNBD, GRB.UNBOUNDED]:
+      return None
+
+    totalDistance = 0.0
+    totalPenalty = 0.0
+    for var in self._varTruck.values():
+      if not isinstance(var, float):
+        if var.x > 0.5:
+          totalDistance += round(var.x,0) * var.obj
+    totalPenalty = self._model.objVal - totalDistance
+    return self._model.objVal, totalDistance, totalPenalty
 
   def write(self, fileName):
     self._model.write(fileName)
@@ -381,16 +389,25 @@ class MIP:
       return False
 
     f = open(fileName, 'w')
-    for (i,j) in self.arcs:
-      for t in self.ticks:
-        if t + self.network.travelTicks(i,j) <= max(self.ticks):
-          if (i,j,t) in self._varTruck and self._varTruck[i,j,t].x > 0.5:
-            f.write(f'T {i} {j} {self.network.tickTime(t)}\n')
+    vals = self.getSolutionValue()
+    assert vals
+    f.write(f'OBJ {vals[0]}\n')
+    f.write(f'DIST {vals[1]}\n')
+    f.write(f'PEN {vals[2]}\n')
+    f.write('\n')
 
     for (i,j) in self.arcs:
       for t in self.ticks:
         if t + self.network.travelTicks(i,j) <= max(self.ticks):
-          if (i,j,t) in self._varTruck and self._varTruck[i,j,t].x > 0.5:
+          if (i,j,t) in self._varTruck and not isinstance(self._varTruck[i,j,t], float) and self._varTruck[i,j,t].x > 0.5:
+            f.write(f'T {i} {j} {self.network.tickTime(t)}\n')
+
+    f.write('\n')
+
+    for (i,j) in self.arcs:
+      for t in self.ticks:
+        if t + self.network.travelTicks(i,j) <= max(self.ticks):
+          if (i,j,t) in self._varTruck and not isinstance(self._varTruck[i,j,t], float) and self._varTruck[i,j,t].x > 0.5:
             usage = 0.0
             for target,shift in self.network.commodities:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
@@ -520,31 +537,25 @@ def run_experiments(network, trolleys, tickHours, tickZero, modifyTrolleysDelive
     mip.setSollimit(1000)
     mip.setTimelimit(min(solutionTimeLimit, max(0, timeLimit - mip.getRuntime())))
     status = mip.optimize()
-    val = GRB.INFINITY
-    if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
-      val = mip.getSolutionValue()
+
+    vals = mip.getSolutionValue()
     mip.writeUsedTrucks(writeTrucksFileName)
+    return vals
 
-    return val
-
-  # run the code to produce one solution in case we do not read an initial solution
+  # Run the code to produce one solution in case we do not read an initial solution
   if readTrucksFileName is None:
     mip.setSollimit(1)
-    status = mip.optimize()
+    mip.optimize()
     currentTime = mip.getRuntime()
 
-  # continue running the code until it hits a time limit (or finds an optimal solution)
+  # Continue running the code until it hits a time limit (or finds an optimal solution)
   mip.setSollimit(1000)
   mip.setTimelimit(currentTime + timeLimit)
+  mip.optimize()
 
-  status = mip.optimize()
-
-  val = GRB.INFINITY
-  if status != GRB.INFEASIBLE and status != GRB.INF_OR_UNBD and status != GRB.UNBOUNDED:
-    val = mip.getSolutionValue()
+  vals = mip.getSolutionValue()
   mip.writeUsedTrucks(writeTrucksFileName)
-
-  return val
+  return vals
 
 if __name__ == "__main__":
 
@@ -582,10 +593,13 @@ if __name__ == "__main__":
       printUsage(f'Unprocessed argument <{arg}>.')
     a += 1
 
-  solval = run_experiments(network=network, trolleys=trolleys, tickHours=tickHours, tickZero=tickZero,
+  vals = run_experiments(network=network, trolleys=trolleys, tickHours=tickHours, tickZero=tickZero,
     modifyTrolleysDeliverable=modifyTrolleysDeliverable, writeTrucksFileName=writeTrucksFileName,
     readTrucksFileName=readTrucksFileName, allowedTruckDeviation=allowedTruckDeviation, constructInitial=True,
     timeLimit=timeLimit, solutionLimit=None, solutionTimeLimit=60)
 
-  print(f'The best incumbent solution has value {solval}.')
+  if vals is None:
+    print(f'No solution found.')
+  else:
+    print(f'The best incumbent solution has value {vals[0]} with total distance {vals[1]:.2f} and penalties {vals[2]:.1f}.')
 
