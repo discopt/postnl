@@ -16,6 +16,7 @@ def printUsage(errorMessage=None):
   print('  -t TIME  After a feasible solution was, the solve has TIME seconds for solving.')
   print('  -d DEV   Truck times may deviate up to DEV hours from the ones read from <FILE> to be considered allowed.')
   print('  -m       Modify trolleys to become deliverable instead of removing them.')
+  print('  -c       Construct initial solution from that input file.')
   sys.exit(1)
 
 class MIP:
@@ -25,6 +26,9 @@ class MIP:
     self._vtypeInventory = GRB.CONTINUOUS
 
     self._model = Model('PostNL')
+    self._model.params.threads = 4
+    self._model.params.startNodeLimit = 1
+    self._model.params.MIPFocus = 1
     self._network = network
     self._minTick = 99999
     self._maxTick = -99999
@@ -350,8 +354,10 @@ class MIP:
     for line in f:
       split = line.split()
       if split and split[0] == 'C':
-        source, target, tick, num = int(split[1]), int(split[2]), int(split[3]), int(split[4])
-        truck_vars[source,target,tick].Start = num
+        source, target, time, num = int(split[1]), int(split[2]), float(split[3]), int(split[4])
+        tick = self.network.timeTick(time)
+        if (source,target,tick) in truck_vars and not isinstance(truck_vars[source,target,tick], float):
+          truck_vars[source,target,tick].start = num
     f.close()
 
 
@@ -412,7 +418,7 @@ class MIP:
             for target,shift in self.network.commodities:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
                 usage += self._varFlow[i,j,t,target,shift].x
-            f.write(f'C {i} {j} {t} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
+            f.write(f'C {i} {j} {self.network.tickTime(t)} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
     f.close()
     return True
 
@@ -572,6 +578,7 @@ if __name__ == "__main__":
   allowedTruckDeviation = 1e4
   modifyTrolleysDeliverable = False
   timeLimit = 86400
+  constructInitial = False
   a = 5
   while a < len(sys.argv):
     arg = sys.argv[a]
@@ -589,13 +596,15 @@ if __name__ == "__main__":
       a += 1
     elif arg == '-m':
       modifyTrolleysDeliverable = True
+    elif arg == '-c':
+      constructInitial = True
     else:
       printUsage(f'Unprocessed argument <{arg}>.')
     a += 1
 
   vals = run_experiments(network=network, trolleys=trolleys, tickHours=tickHours, tickZero=tickZero,
     modifyTrolleysDeliverable=modifyTrolleysDeliverable, writeTrucksFileName=writeTrucksFileName,
-    readTrucksFileName=readTrucksFileName, allowedTruckDeviation=allowedTruckDeviation, constructInitial=True,
+    readTrucksFileName=readTrucksFileName, allowedTruckDeviation=allowedTruckDeviation, constructInitial=constructInitial,
     timeLimit=timeLimit, solutionLimit=None, solutionTimeLimit=60)
 
   if vals is None:
