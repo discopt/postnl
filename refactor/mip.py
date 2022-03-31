@@ -48,7 +48,7 @@ class MIP:
     self._varExtendedCapacity = {}
     self._varExtraDocks = {}
     self._undeliveredPenalty = 10
-    self._extenedCapacityCost = 10
+    self._extendedCapacityCost = 10
     self._extraDockPenalty = 10
 
     self._allowedTruckDeviation = allowedTruckDeviation
@@ -213,7 +213,7 @@ class MIP:
     print('Creating extended-capacity variables.')
     self._varExtendedCapacity = {}
     for i in self.nodes:
-      self._varExtendedCapacity[i] = self._model.addVar(name=f'extcap#{i}', obj=self._extenedCapacityCost)
+      self._varExtendedCapacity[i] = self._model.addVar(name=f'extcap#{i}', obj=self._extendedCapacityCost)
 
   def createCapacityConstraints(self):
     print('Creating truck capacity constraints.')
