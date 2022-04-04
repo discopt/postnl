@@ -5,6 +5,7 @@ import time
 
 network = Network(sys.argv[1])
 trolleys = network.readTrolleys(sys.argv[2])
+prefix = sys.argv[3]
 
 # the first run has a time limit and constructs a solution from the 1h discretization for the 0.5h discretization
 tickHours = 0.5
