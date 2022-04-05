@@ -432,7 +432,7 @@ class MIP:
             for target,shift in self.network.commodities:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
                 usage += self._varFlow[i,j,t,target,shift].x
-                f.write(f'S {i} {j} {target} {shift} {self.network.tickTime(t)} {math.ceil(round(usage,2)}\n')
+                f.write(f'S {i} {j} {target} {shift} {self.network.tickTime(t)} {math.ceil(round(usage,2))}\n')
             f.write(f'C {i} {j} {self.network.tickTime(t)} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
     f.close()
     return True
