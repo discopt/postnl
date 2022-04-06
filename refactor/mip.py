@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import math
 import time
 
+def time2tick(time, timeshift, ticklen):
+    return int((time - timeshift) / ticklen)
+
 def printUsage(errorMessage=None):
   if errorMessage is not None:
     print(f'Error: {errorMessage}')
@@ -355,7 +358,7 @@ class MIP:
       split = line.split()
       if split and split[0] == 'C':
         source, target, time, num = int(split[1]), int(split[2]), float(split[3]), int(split[4])
-        tick = self.network.timeTick(time)
+        tick = time2tick(time, 0, 0.5)
         if (source,target,tick) in truck_vars and not isinstance(truck_vars[source,target,tick], float):
           truck_vars[source,target,tick].start = num
     f.close()
@@ -416,6 +419,9 @@ class MIP:
     f.write(f'NDEL {vals[4]}\n')
     f.write('\n')
 
+    for k in self._varInventory.keys():
+      f.write(f'I {k} {self._varInventory[k].X}\n')
+
     for (i,j) in self.arcs:
       for t in self.ticks:
         if t + self.network.travelTicks(i,j) <= max(self.ticks):
@@ -432,7 +438,7 @@ class MIP:
             for target,shift in self.network.commodities:
               if (i,j,t,target,shift) in self._varFlow and self._varFlow[i,j,t,target,shift].x > 1.0e-4:
                 usage += self._varFlow[i,j,t,target,shift].x
-                f.write(f'S {i} {j} {target} {shift} {self.network.tickTime(t)} {math.ceil(round(usage,2))}\n')
+                f.write(f'S {i} {j} {target} {shift} {self.network.tickTime(t)} {usage}\n')
             f.write(f'C {i} {j} {self.network.tickTime(t)} {math.ceil(round(usage,2) / self._network.truckCapacity)}\n')
     f.close()
     return True

@@ -20,6 +20,9 @@ class Trolley:
     self.release = release
     self.commodity = commodity
 
+  def get_commodity(self):
+    return self.commodity
+
 class Network:
 
   def __init__(self, fileName=None):
