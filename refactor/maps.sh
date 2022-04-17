@@ -3,11 +3,11 @@
 OUTPUTDIR=/home/matthias
 
 python map.py ../../private/net_base.network /tmp/only-direct.png ../../private/net_U44_trolleys_1234.30-best.out direct
-convert /tmp/only-direct.png -crop 950x1100+510+180 ${OUTPUTDIR}/only-direct.png
+convert /tmp/only-direct.png -crop 945x1100+510+180 ${OUTPUTDIR}/only-direct.png
 python map.py ../../private/net_base.network /tmp/only-cross.png ../../private/net_U44_trolleys_1234.30-best.out cross
-convert /tmp/only-cross.png -crop 950x1100+510+180 ${OUTPUTDIR}/only-cross.png
+convert /tmp/only-cross.png -crop 945x1100+510+180 ${OUTPUTDIR}/only-cross.png
 python map.py ../../private/net_base.network /tmp/only-used.png ../../private/net_U44_trolleys_1234.30-best.out used
-convert /tmp/only-used.png -crop 950x1100+510+180 ${OUTPUTDIR}/only-used.png
+convert /tmp/only-used.png -crop 945x1100+510+180 ${OUTPUTDIR}/only-used.png
 
 python map.py ../../private/net_base.network /tmp/times18.png ../../private/net_U44_trolleys_1234.30-best.out times 18 18.9 
 python map.py ../../private/net_base.network /tmp/times19.png ../../private/net_U44_trolleys_1234.30-best.out times 19 19.9 
@@ -30,7 +30,13 @@ python map.py ../../private/net_base.network /tmp/times35.png ../../private/net_
 python map.py ../../private/net_base.network /tmp/times36.png ../../private/net_U44_trolleys_1234.30-best.out times 36 36.9 
 python map.py ../../private/net_base.network /tmp/times37.png ../../private/net_U44_trolleys_1234.30-best.out times 37 37.9 
 for T in `seq 18 37`; do
-  convert /tmp/times${T}.png -crop 950x1100+510+180 ${OUTPUTDIR}/times${T}.png
+  convert /tmp/times${T}.png -crop 945x1100+510+180 ${OUTPUTDIR}/times${T}.png
 done
 
-
+LOCATIONS=`python map.py ../../private/net_base.network /home/matthias/commodity_1_1.png ../../private/net_base_trolleys_1234.30-9.out shift UNKNOWN 1 | tail -n 1 | sed -e 's/,/ /g'`
+for LOCATION in ${LOCATIONS}; do
+  for SHIFT in `seq 1 9`; do
+    python map.py ../../private/net_base.network /tmp/commodity_${LOCATION}_${SHIFT}.png ../../private/net_base_trolleys_1234.30-9.out shift ${LOCATION} ${SHIFT}
+    convert /tmp/commodity_${LOCATION}_${SHIFT}.png -crop 945x1100+510+180 ${OUTPUTDIR}/commodity_${LOCATION}_${SHIFT}.png
+  done
+done

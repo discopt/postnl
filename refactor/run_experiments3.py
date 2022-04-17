@@ -16,7 +16,7 @@ bestVals = None
 bestValsFileName = None
 while True:
   count120 += 1
-  outputFileName = f'{prefix}.120-{count120}.out'
+  outputFileName = f'{prefix}.120-{count120}.sol'
   if exists(outputFileName):
     print(f'Output file <{outputFileName}> exists!')
     sys.exit(1)
@@ -44,7 +44,7 @@ while True:
 count60 = 0
 while True:
   count60 += 1
-  outputFileName = f'{prefix}.60-{count60}.out'
+  outputFileName = f'{prefix}.60-{count60}.sol'
   if exists(outputFileName):
     print(f'Output file <{outputFileName}> exists!')
     sys.exit(1)
@@ -74,7 +74,7 @@ solTimeLimit = 300
 remainingTime = 86400
 while remainingTime > 60:
   count30 += 1
-  outputFileName = f'{prefix}.30-{count30}.out'
+  outputFileName = f'{prefix}.30-{count30}.sol'
   if exists(outputFileName):
     print(f'Output file <{outputFileName}> exists!')
     sys.exit(1)
