@@ -283,12 +283,8 @@ class MIP:
     print('Creating target capacity constraints.')
     for i in self.nodes:
       for t in self.ticks:
-        # for non-crossdocks: total of arriving commodities + inventory of all commodities with this location as destination <= 1200
-        lhs = quicksum( self._varFlow.get((j,i,t-self.network.travelTicks(j,i),target,shift), 0.0) for j in self.nodes for target,shift in self.network.commodities )
-        for target,shift in self.network.commodities:
-          if target == i and t < self.network.deadlineTick((target,shift)):
-            lhs += self._varInventory.get((i,t,target,shift), 0.0)
-        self._model.addConstr( lhs <= self.network.targetCapacity(i) )
+        # inventory of all commodities with this location as destination <= 1200
+        self._model.addConstr( quicksum( self._varInventory.get((i,t,target,shift), 0.0) for target,shift in self.network.commodities if target == i) <= self.network.targetCapacity(i) )
 
   def constructInitialSolution(self, trolleys):
 
