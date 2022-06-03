@@ -136,7 +136,12 @@ class Network:
     return int(math.floor((self.deadline(commodity) - self._tickZero) / self._tickHours))
 
   def tickTime(self, tick):
+    '''Converts ticks to time units.'''
     return tick * self._tickHours + self._tickZero
+
+  def timeTick(self, time):
+    '''Converts time units to closest tick.'''
+    return int(round((time - self._tickZero) / self._tickHours ,0))
 
   def distance(self, source, target):
     return self._locationData[source].distances[target]

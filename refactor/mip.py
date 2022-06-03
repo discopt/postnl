@@ -275,12 +275,15 @@ class MIP:
     print('Creating source capacity constraints.')
     for i in self.nodes:
       for t in self.ticks:
+        # for non-crossdocks: total inventory of commodities with difference destination <= 400
+        # for crossdocks: total inventory of commodities with difference destination <= 400 + big number
         self._model.addConstr( quicksum( self._varInventory.get((i,t,target,shift), 0.0) for target,shift in self.network.commodities if target != i) <= self.network.sourceCapacity(i) + self.network.crossCapacity(i))
     
   def createTargetCapacityConstraints(self):
     print('Creating target capacity constraints.')
     for i in self.nodes:
       for t in self.ticks:
+        # for non-crossdocks: total of arriving commodities + inventory of all commodities with this location as destination <= 1200
         lhs = quicksum( self._varFlow.get((j,i,t-self.network.travelTicks(j,i),target,shift), 0.0) for j in self.nodes for target,shift in self.network.commodities )
         for target,shift in self.network.commodities:
           if target == i and t < self.network.deadlineTick((target,shift)):
@@ -358,7 +361,7 @@ class MIP:
       split = line.split()
       if split and split[0] == 'C':
         source, target, time, num = int(split[1]), int(split[2]), float(split[3]), int(split[4])
-        tick = time2tick(time, 0, 0.5)
+        tick = network.timeTick(time)
         if (source,target,tick) in truck_vars and not isinstance(truck_vars[source,target,tick], float):
           truck_vars[source,target,tick].start = num
     f.close()
