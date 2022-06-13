@@ -209,7 +209,7 @@ class MIP:
       for t in self.ticks:
         for target,shift in self.network.commodities:
           if (i,t,target,shift) in production:
-            self._varNotProduced[i,t,target,shift] = self._model.addVar(name=f'notproduced#{i}#{t}#{target}#{shift}', obj=self._undeliveredPenalty)
+            self._varNotProduced[i,t,target,shift] = self._model.addVar(name=f'notproduced#{i}#{t}#{target}#{shift}', ub=production[i,t,target,shift], obj=self._undeliveredPenalty)
     self._model.update()
 
   def createExtendedCapacityVars(self):
