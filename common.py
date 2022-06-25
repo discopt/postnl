@@ -1,208 +1,188 @@
-import sys
-import random
+import math
+import csv
 
-class Place:
-  pass
+class LocationData:
+
+  def __init__(self, name, x, y, sourceCapacity, targetCapacity, crossCapacity, numDocks):
+    self.name = name
+    self.x = x
+    self.y = y
+    self.sourceCapacity = sourceCapacity
+    self.targetCapacity = targetCapacity
+    self.crossCapacity = crossCapacity
+    self.numDocks = numDocks
+    self.distances = {}
 
 class Trolley:
-  pass
 
-class Route:
-  pass
+  def __init__(self, source, release, commodity):
+    self.source = source
+    self.release = release
+    self.commodity = commodity
 
-class Instance:
+  def get_commodity(self):
+    return self.commodity
+
+class Network:
 
   def __init__(self, fileName=None):
-    if fileName != None:
+    self._locationData = []
+    self._nameToLocation = {}
+    self._commodities = {}
+    self._connections = []
+    self._truckCapacity = None
+    self._loadingTime = None
+    self._unloadingTime = None
+    if fileName:
       f = open(fileName, 'r')
-      data = f.read().split()
-      i = 0
-      self.places = {}
-      self.dist = {}
-      self.hourDistances = {}
-      self.trolleys = {}
-      self.start = 9999999
-      self.end = -9999999
-      while i < len(data):
-        if data[i] == 'T':
-          self.tickHours = float(data[i+1])
-          self.timeShift = float(data[i+2])
-          self.crossTicks = int(data[i+3])
-          i += 4
-        elif data[i] == 'p':
-          place = Place()
-          place.name = data[i+2]
-          place.lattitude = float(data[i+3])
-          place.longitude = float(data[i+4])
-          place.isTarget = data[i+5] == '1'
-          place.isCross = data[i+6] == '1'
-          place.inCapacity = int(data[i+7])
-          place.outCapacity = int(data[i+8])
-          place.inAmount = 0
-          place.outAmount = 0
-          self.places[int(data[i+1])] = place
-          i += 9
-        elif data[i] == 'd':
-          self.dist[int(data[i+1]),int(data[i+2])] = int(data[i+3])
-          self.hourDistances[int(data[i+1]),int(data[i+2])] = float(data[i+4])
-          i += 5
-        elif data[i] == 't':
-          trolley = Trolley()
-          trolley.origin = int(data[i+2])
-          trolley.destination = int(data[i+3])
-          trolley.release = int(data[i+4])
-          trolley.deadline = int(data[i+5])
-          self.trolleys[int(data[i+1])] = trolley
-          i += 6
-          if trolley.release < self.start:
-            self.start = trolley.release
-          if trolley.deadline > self.end:
-            self.end = trolley.deadline
-          trolley.position = -1   # keeps track of the position of the trolley
+      for line in f.read().split('\n'):
+        line = line.strip().split()
+        if not line:
+          continue
+        elif line[0] == 'l':
+          self.addLocation(LocationData(line[1], float(line[2]), float(line[3]), int(line[4]), int(line[5]), int(line[6]), int(line[7])))
+        elif line[0] == 'd':
+          self.addArc(int(line[1]), int(line[2]), float(line[3]))
+        elif line[0] == 'c':
+          self.addCommodity(int(line[1]), int(line[2]), float(line[3]))
+        elif line[0] == 'U':
+          self._truckCapacity = int(line[1])
+        elif line[0] == 'i':
+          self._unloadingTime = float(line[1])
+        elif line[0] == 'o':
+          self._loadingTime = float(line[1])
         else:
-          sys.stderr.write(f'Ignoring token <{data[i]}>.\n')
-          i += 1
+          assert False
 
-  def writeRoutes(self, routes, fileStream=sys.stdout):
-    for key,routeSet in routes.items():
-      for route in routeSet:
-        assert key[0] == route[0] and key[1] == route[-1]
-        fileStream.write(f'{key[0]} {key[1]} {len(route)-2}' + ' '.join(map(str, route[1:-1])) + '\n')
-    fileStream.flush()
+  def addLocation(self, locationData):
+    v = len(self._locationData)
+    self._nameToLocation[locationData.name] = v
+    self._locationData.append(locationData)
+    self._connections += [ (s,v) for s in range(v) ] + [ (v,s) for s in range(v) ]
+    return v
 
-  def readRoutes(self, fileName):
+  def addArc(self, source, target, distance):
+    self._locationData[source].distances[target] = distance
+
+  def addCommodity(self, target, shift, deadline):
+    self._commodities[(target,shift)] = deadline
+
+  def setDiscretization(self, tickHours, tickZero=0.0):
+    self._tickHours = tickHours
+    self._tickZero = tickZero
+
+  def setTruckCapacity(self, truckCapacity):
+    self._truckCapacity = truckCapacity
+
+  def setLoadingTime(self, loadingTime):
+    self._loadingTime = loadingTime
+
+  def setUnloadingTime(self, unloadingTime):
+    self._unloadingTime = unloadingTime
+
+  @property
+  def locations(self):
+    return list(range(len(self._locationData)))
+
+  @property
+  def connections(self):
+    return self._connections
+
+  @property
+  def commodities(self):
+    return self._commodities.keys()
+
+  @property
+  def truckCapacity(self):
+    return self._truckCapacity
+
+  @property
+  def unloadingTicks(self):
+    return math.ceil(self._unloadingTime / self._tickHours)
+
+  @property
+  def loadingTicks(self):
+    return math.ceil((self._unloadingTime + self._loadingTime) / self._tickHours) - self.unloadingTicks
+
+  def name(self, location):
+    return self._locationData[location].name
+
+  def x(self, location):
+    return self._locationData[location].x
+
+  def y(self, location):
+    return self._locationData[location].y
+
+  def sourceCapacity(self, location):
+    return self._locationData[location].sourceCapacity
+
+  def targetCapacity(self, location):
+    return self._locationData[location].targetCapacity
+
+  def crossCapacity(self, location):
+    return self._locationData[location].crossCapacity
+
+  def numDocks(self, location):
+    return self._locationData[location].numDocks
+
+  def numDocksPerTick(self, location):
+    scaling = self._tickHours / (self._loadingTime + self._unloadingTime)
+    return self.numDocks(location) * math.ceil(scaling)
+
+  def deadline(self, commodity):
+    return self._commodities[commodity]
+
+  def deadlineTick(self, commodity):
+    return int(math.floor((self.deadline(commodity) - self._tickZero) / self._tickHours))
+
+  def tickTime(self, tick):
+    '''Converts ticks to time units.'''
+    return tick * self._tickHours + self._tickZero
+
+  def timeTick(self, time):
+    '''Converts time units to closest tick.'''
+    return int(round((time - self._tickZero) / self._tickHours ,0))
+
+  def distance(self, source, target):
+    return self._locationData[source].distances[target]
+
+  def travelTicks(self, source, target):
+    return int(math.ceil((self.distance(source, target) + self._loadingTime + self._unloadingTime) / self._tickHours))
+
+  def isCross(self, location):
+    return self._locationData[location].crossCapacity > 0
+
+  def find(self, name):
+    return self._nameToLocation.get(name, -1)
+
+  def write(self, f):
+    f.write(f'U {self._truckCapacity}\n')
+    f.write(f'i {self._unloadingTime}\n')
+    f.write(f'o {self._loadingTime}\n')
+    f.write('\n')
+    for p in self.locations:
+      f.write(f'l {self.name(p)} {self.x(p):.4f} {self.y(p):.4f} {self.sourceCapacity(p)} {self.targetCapacity(p)} {self.crossCapacity(p)} {self.numDocks(p)}\n')
+    f.write('\n')
+    for s in self.locations:
+      for t in self.locations:
+        f.write(f'd {s} {t} {self.distance(s,t):.3f}\n')
+    f.write('\n')
+    for target,shift in self.commodities:
+      f.write(f'c {target} {shift} {self.deadline((target,shift))}\n')
+    f.write('\n')
+
+  def readTrolleys(self, fileName):
+    trolleys = []
     f = open(fileName, 'r')
-    data = f.read().split()
-    i = 0
-    self.routes = {}
-    while i < len(data):
-      route = Route()
-      route.origin = int(data[i])
-      route.destination = int(data[i+1])
-      route.numberOfIntermediates = int(data[i+2])
-      intermediatePlaces = ''
-      for j in range(route.numberOfIntermediates):
-        intermediatePlaces += data[i+3+j]
-      route.itermediatePlaces = intermediatePlaces
-      self.routes[int(data[i]),int(data[i+1])] = route
-      i += 3 + route.numberOfIntermediates
+    reader = csv.reader(f)
+    header = next(reader, None)
+    for row in reader:
+      if len(row) == 1:
+        row = row[0].split(';')
+      trolleys.append(Trolley(self.find(row[0]), float(row[-1]), (self.find(row[1]), int(row[-2]))))
 
-  def writeinstance(self, filename):
-    f = open(filename, 'w')
+    return trolleys
 
-    f.write(f'T {self.tickHours} {self.timeShift} {self.crossTicks}\n\n')
+  def trolleyReleaseTick(self, trolley):
+    return int(math.ceil((trolley.release - self._tickZero) / self._tickHours))
 
-    for p in self.places:
-      place = self.places[p]
-      f.write(f'p {place.name} {place.lattitude} {place.longitude} {1 if place.isTarget else 0} '
-              f'{1 if place.isCross else 0} {place.inCapacity} {place.outCapacity}\n')
-    f.write('\n')
-
-    for i, j in self.dist:
-      f.write(f'd {i} {j} {self.dist[(i,j)]} {self.hourDistances[(i,j)]}\n')
-    f.write('\n')
-
-    for t in self.trolleys:
-      trolley = self.trolleys[t]
-      f.write(f't {t} {trolley.origin} {trolley.destination} {trolley.release} {trolley.deadline}\n')
-    f.write('\n')
-    f.close()
-
-class Demandinstance:
-
-  def __init__(self, instance=None):
-    if not instance is None:
-      self.demand = dict()
-      self.places = instance.places
-      self.dist = instance.dist
-      self.hourDistances = instance.hourDistances
-      self.depots = [k for k in self.places if self.places[k].isTarget]
-      self.tickHours = instance.tickHours
-      self.timeShift = instance.timeShift
-      self.crossTicks = instance.crossTicks
-
-      for d in self.depots:
-        self.places[d].spawn_start = 9999999
-        self.places[d].spawn_end = -9999999
-        self.places[d].shifts = set()
-
-      for o in self.depots:
-        for d in self.depots:
-          self.demand[(o, d)] = 0
-
-      for trolley in instance.trolleys.values():
-        self.demand[(trolley.origin, trolley.destination)] += 1
-        if trolley.release < self.places[trolley.origin].spawn_start:
-          self.places[trolley.origin].spawn_start = trolley.release
-        if trolley.release > self.places[trolley.origin].spawn_end:
-          self.places[trolley.origin].spawn_end = trolley.release
-        self.places[trolley.destination].shifts.add(trolley.deadline)
-
-      for k in self.depots:
-        place = self.places[k]
-        place.demand = {destination: self.demand[(k, destination)] for destination in self.depots}
-
-  def totaldemand(self):
-    return sum(self.demand.values())
-
-  def depottotaldemand(self, depot):
-    return sum(self.places[depot].demand.values())
-
-  def __str__(self):
-    # return str(self.demand)
-    s: str = '     ' + 'spawn_int'
-    for o in self.depots:
-      s += f'{o:>5}'
-    s += ' total\n'
-    for o in self.depots:
-      s += f'{o:>2}:  [{self.places[o].spawn_start:>3},{self.places[o].spawn_end:>3}]'
-      for d in self.depots:
-        s += f'{self.demand[(o, d)]:>5}'
-      s += f'{self.depottotaldemand(o):>6}\n'
-    s += f'Total demand: {self.totaldemand()}\n'
-    s += f'Total \'self\' demand: {sum([self.demand[(d, d)] for d in self.depots])}'
-    return s
-
-def randompairdemand(demandmatrix, error=0.25):
-  randompaireddemand = {}
-  pair_sigma = {}
-
-  for o, d in demandmatrix:
-    pair_sigma[(o, d)] = demandmatrix[(o, d)] * error / 3
-    randompaireddemand[(o, d)] = round(random.normalvariate(demandmatrix[(o, d)], pair_sigma[(o, d)]))
-
-  return randompaireddemand
-
-def createRandomInstance(demandinstance, shorteninterval=0):
-  randinstance = Instance()
-  randinstance.places = demandinstance.places
-  randinstance.dist = demandinstance.dist
-  randinstance.hourDistances = demandinstance.hourDistances
-  randinstance.tickHours = demandinstance.tickHours
-  randinstance.timeShift = demandinstance.timeShift
-  randinstance.crossTicks = demandinstance.crossTicks
-  randinstance.trolleys = {}
-
-  temptrolleys = []
-
-  randomdemand = randompairdemand(demandinstance.demand, 0.25)  # adds variation to the paired demand (default 25% error)
-
-  for o, d in randomdemand:
-    origin = demandinstance.places[o]
-    destination = demandinstance.places[d]
-    demand = randomdemand[(o, d)]
-    for _ in range(demand):
-      t = Trolley()
-      shifts = list(destination.shifts)
-      shiftnr = random.randint(0, len(shifts) - 1)
-      t.origin = o
-      t.destination = d
-      t.release = random.randint(round(origin.spawn_start + shorteninterval/2*(origin.spawn_end -origin.spawn_start)),
-                                 round(origin.spawn_end - shorteninterval/2*(origin.spawn_end -origin.spawn_start)))
-      t.deadline = shifts[shiftnr]
-      temptrolleys += [t]
-
-  sortedtrolleys = sorted(temptrolleys, key=lambda x: x.release)
-  randinstance.trolleys = {i: sortedtrolleys[i] for i in range(len(temptrolleys))}
-
-  return randinstance
